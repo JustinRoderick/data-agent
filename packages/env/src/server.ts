@@ -18,6 +18,8 @@ export const env = createEnv({
     DATABRICKS_TOKEN: z.string().min(1).optional(),
     DATABRICKS_CATALOG: z.string().min(1).default("main"),
     DATABRICKS_SCHEMA: z.string().min(1).default("bi_demo"),
+    DATABRICKS_QUERY_TAG: z.string().min(1).default("app:openai-demo-bi-copilot"),
+    DATABRICKS_MAX_ROWS: z.coerce.number().int().positive().default(1000),
     ENABLE_DATABRICKS_EXECUTION: z
       .enum(["true", "false"])
       .default("false")

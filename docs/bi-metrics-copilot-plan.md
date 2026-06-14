@@ -82,7 +82,7 @@ Major planned pieces:
 - [x] Databricks DDL exists at `data/kaggle/gcp-cloud-billing-data/schema/databricks-ddl.sql`.
 - [x] Initial cloud cost metric, table, and runbook docs exist under `knowledge/`.
 - [ ] Real OpenAI Agents SDK implementation in `packages/agents`.
-- [ ] Real Databricks SQL driver implementation in `packages/databricks`.
+- [x] Real Databricks SQL driver implementation in `packages/databricks`.
 - [ ] Real OpenAI vector store/file search implementation in `packages/rag`.
 - [ ] Real Braintrust experiment runner in `packages/evals`.
 - [ ] Agent run persistence tables in `packages/db`.
@@ -242,14 +242,15 @@ The app should be able to run in mock mode without Databricks credentials.
 
 Build a small Databricks client wrapper with methods for:
 
-- Health check.
-- List catalogs/schemas/tables.
-- Get columns and table comments.
-- Run read-only SQL.
-- Run limited preview queries.
-- Capture execution metadata.
+- [x] Health check.
+- [ ] List catalogs/schemas/tables.
+- [x] Get columns and table comments.
+- [x] Run read-only SQL.
+- [x] Run limited preview queries.
+- [x] Capture execution metadata.
 
-Add a mock Databricks adapter with the same interface so the demo and tests can run locally.
+- [x] Add a mock Databricks adapter with the same interface so the demo and tests can run locally.
+- [x] Add `bun run databricks:check` to verify credentials, table metadata, and preview rows after the data is uploaded.
 
 For this dataset, the first live Databricks target is:
 

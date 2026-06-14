@@ -37,9 +37,11 @@
     "docker:logs": "docker compose logs -f",
     "check": "oxlint && oxfmt --write",
     "test": "vitest",
-    "data:prepare:gcp-billing": "bun run scripts/prepare-gcp-billing-data.ts"
+    "data:prepare:gcp-billing": "bun run scripts/prepare-gcp-billing-data.ts",
+    "databricks:check": "bun run scripts/check-databricks-connection.ts"
   },
   "dependencies": {
+    "@openai-demo/databricks": "workspace:*",
     "@openai-demo/env": "workspace:*",
     "dotenv": "catalog:",
     "zod": "catalog:"
