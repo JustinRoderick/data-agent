@@ -568,9 +568,10 @@ Implement the simplest useful workflow:
 - [x] Narrative scaffold returns a proposed answer and citations.
 - [x] Add opt-in model-backed SQL generation through the OpenAI Agents SDK.
 - [x] Add streaming step events for Hono/UI.
-- [ ] Add structured output schemas for each specialist agent.
-- [ ] Split agent definitions into coordinator, RAG, schema, SQL, safety, sandbox, executor, and narrative factories.
-- [ ] Replace deterministic fallback with richer multi-agent handoffs after UI is working.
+- [x] Add structured output schemas for each specialist agent.
+- [x] Split agent definitions into coordinator, RAG, schema, SQL, safety, sandbox, executor, and narrative factories.
+- [x] Add schema lookup, SQL safety, sandbox validation, and narrative contracts to the run path.
+- [ ] Add model-backed structured output generation for every specialist, beyond coordinator, SQL draft, and narrative.
 
 At this stage, the first slice is exposed through Hono. It can run with a deterministic SQL fallback or opt into model-backed SQL generation when `OPENAI_API_KEY` is configured.
 
@@ -595,6 +596,13 @@ Add deterministic SQL safety checks before the sandbox:
 - Optional row limit for previews.
 
 Then add the sandbox agent to validate SQL against local mock data. The workflow should not call Databricks until deterministic checks and sandbox validation both pass.
+
+Current implementation status:
+
+- [x] Deterministic SQL safety validates SELECT/WITH-only SQL.
+- [x] Approved table allowlisting runs before execution.
+- [x] Sandbox validation runs against local/mock billing data before Databricks execution when a sandbox connector is configured.
+- [ ] Add model-backed SQL safety review as a second opinion after deterministic checks.
 
 ### 9. Add Live Databricks Execution
 
@@ -639,6 +647,14 @@ Replace the scaffold home/dashboard with a compact internal BI workbench:
 Use TanStack Query for normal reads/mutations and a streaming channel for live run events.
 
 ### 12. Add Braintrust Evals
+
+Braintrust setup for this demo:
+
+- Create a Braintrust project named `openai-demo-bi-metrics-copilot`.
+- Create a Braintrust API key in user settings and set `BRAINTRUST_API_KEY` in `apps/server/.env`.
+- Set `BRAINTRUST_PROJECT_NAME=openai-demo-bi-metrics-copilot`.
+- Configure OpenAI as an AI provider in Braintrust if using Braintrust-hosted LLM-as-judge scorers or the Braintrust gateway.
+- Keep `OPENAI_API_KEY` in `apps/server/.env` for this app's OpenAI Agents SDK and vector store calls.
 
 Create curated eval scenarios covering:
 
@@ -738,9 +754,10 @@ Add:
 - [x] Add an OpenAI vector-store search connector.
 - [x] Add a script to ingest docs into OpenAI vector stores.
 - [ ] Run vector store ingestion with a real `OPENAI_API_KEY`.
-- [ ] Add Schema Agent metadata lookup.
-- [ ] Add SQL Safety Agent output schema and model review.
-- [ ] Validate generated SQL through deterministic checks plus sandbox agent execution.
+- [x] Add Schema Agent metadata lookup.
+- [x] Add SQL Safety Agent output schema.
+- [x] Validate generated SQL through deterministic checks plus sandbox agent execution.
+- [ ] Add model-backed SQL Safety Agent review.
 
 ### Milestone 5: Databricks Live Mode
 

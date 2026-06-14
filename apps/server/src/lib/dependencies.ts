@@ -37,10 +37,15 @@ interface GcpBillingRow {
 const billingCsvPath = "data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv";
 
 export async function createCopilotDependencies() {
-  const [databricks, rag] = await Promise.all([createDatabricks(), createRag()]);
+  const [databricks, sandboxDatabricks, rag] = await Promise.all([
+    createDatabricks(),
+    createSandboxDatabricks(),
+    createRag(),
+  ]);
 
   return {
     databricks,
+    sandboxDatabricks,
     rag,
     tableName: `${env.DATABRICKS_CATALOG}.${env.DATABRICKS_SCHEMA}.gcp_billing_usage`,
     useModel: Boolean(env.OPENAI_API_KEY),
@@ -62,6 +67,10 @@ async function createDatabricks(): Promise<DatabricksConnector> {
 
   const rows = await loadBillingRows();
   return new LocalBillingDatabricksConnector(rows);
+}
+
+async function createSandboxDatabricks(): Promise<DatabricksConnector> {
+  return new LocalBillingDatabricksConnector(await loadBillingRows());
 }
 
 async function createRag(): Promise<RagConnector> {

@@ -4,10 +4,15 @@ import { MockDatabricksConnector } from "@openai-demo/databricks";
 import { InMemoryRagConnector } from "@openai-demo/rag";
 
 import {
+  analysisPlanSchema,
   copilotQuestionSchema,
   createCloudCostAgentDefinitions,
   createInitialRunPlan,
   runCloudCostCopilot,
+  sandboxValidationResultSchema,
+  schemaAssessmentSchema,
+  sqlDraftSchema,
+  sqlSafetyResultSchema,
 } from "./index";
 
 describe("agents scaffold", () => {
@@ -42,6 +47,7 @@ describe("agents scaffold", () => {
   });
 
   it("runs the first cloud cost copilot slice with mocked dependencies", async () => {
+    const events: unknown[] = [];
     const result = await runCloudCostCopilot(
       {
         question: "What were the top GCP services by cloud spend in August 2024?",
@@ -66,12 +72,49 @@ describe("agents scaffold", () => {
             tags: ["metrics"],
           },
         ]),
+        onEvent: (event) => {
+          events.push(event);
+        },
       },
     );
 
     expect(result.sql).toContain("SUM(rounded_cost_usd)");
     expect(result.answer).toContain("Cloud Dataproc");
     expect(result.citations).toHaveLength(1);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ step: "schema_lookup", status: "completed" }),
+        expect.objectContaining({ step: "sandbox_validation", status: "completed" }),
+      ]),
+    );
+  });
+
+  it("parses structured specialist outputs", () => {
+    expect(
+      analysisPlanSchema.parse({
+        questionType: "spend_breakdown",
+        normalizedQuestion: "Top services by spend",
+      }).metricId,
+    ).toBe("cloud_spend_usd");
+    expect(
+      schemaAssessmentSchema.parse({
+        tableName: "main.bi_demo.gcp_billing_usage",
+        columns: [{ columnName: "rounded_cost_usd", dataType: "DOUBLE" }],
+      }).costColumn,
+    ).toBe("rounded_cost_usd");
+    expect(
+      sqlDraftSchema.parse({
+        sql: "SELECT service_name FROM main.bi_demo.gcp_billing_usage WHERE usage_start_ts >= TIMESTAMP '2024-08-01'",
+      }).timeWindow,
+    ).toBe("August 2024");
+    expect(sqlSafetyResultSchema.parse({ passed: true }).reasons).toEqual([]);
+    expect(
+      sandboxValidationResultSchema.parse({
+        passed: true,
+        rowCount: 1,
+        previewRows: [{ service_name: "Cloud Run" }],
+      }).warnings,
+    ).toEqual([]);
   });
 
   it("creates OpenAI Agents SDK definitions for the cloud cost workflow", () => {
@@ -82,5 +125,7 @@ describe("agents scaffold", () => {
 
     expect(definitions.coordinatorAgent.name).toBe("Cloud Cost Coordinator Agent");
     expect(definitions.tools.searchMetricContext.name).toBe("search_metric_context");
+    expect(definitions.tools.listDatabricksColumns.name).toBe("list_databricks_columns");
+    expect(definitions.sandboxAgent.name).toBe("Sandbox Validation Agent");
   });
 });
