@@ -72,7 +72,7 @@ export class OpenAIVectorStoreRagConnector implements RagConnector {
       rewrite_query: true,
     });
 
-    const results = await response.getPaginatedItems();
+    const results = await collectAsyncIterable(response);
 
     return results.map((result) => ({
       documentId: result.file_id,
@@ -164,4 +164,13 @@ function extractTitle(content: string): string | undefined {
 
 function titleFromPath(filePath: string): string {
   return basename(filePath, extname(filePath)).replaceAll(/[-_]+/gu, " ");
+}
+
+async function collectAsyncIterable<T>(items: AsyncIterable<T>): Promise<T[]> {
+  const results = [];
+  for await (const item of items) {
+    results.push(item);
+  }
+
+  return results;
 }

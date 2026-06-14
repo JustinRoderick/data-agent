@@ -51,11 +51,12 @@ const batch = await client.vectorStores.fileBatches.uploadAndPoll(
     pollIntervalMs: 1000,
   },
 );
-const vectorStoreFiles = await client.vectorStores.fileBatches
-  .listFiles(batch.id, {
+
+const vectorStoreFiles = await collectAsyncIterable(
+  client.vectorStores.fileBatches.listFiles(batch.id, {
     vector_store_id: vectorStore.id,
-  })
-  .getPaginatedItems();
+  }),
+);
 
 await mkdir("knowledge", { recursive: true });
 await writeFile(
@@ -119,4 +120,13 @@ async function listMarkdownFiles(rootDir: string): Promise<string[]> {
 
 function titleFromPath(filePath: string): string {
   return basename(filePath, extname(filePath)).replaceAll(/[-_]+/gu, " ");
+}
+
+async function collectAsyncIterable<T>(items: AsyncIterable<T>): Promise<T[]> {
+  const results = [];
+  for await (const item of items) {
+    results.push(item);
+  }
+
+  return results;
 }
