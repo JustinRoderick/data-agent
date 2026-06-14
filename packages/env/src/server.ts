@@ -9,6 +9,23 @@ export const env = createEnv({
     BETTER_AUTH_URL: z.url(),
     CORS_ORIGIN: z.url(),
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    OPENAI_VECTOR_STORE_ID: z.string().min(1).optional(),
+    BRAINTRUST_API_KEY: z.string().min(1).optional(),
+    BRAINTRUST_PROJECT_NAME: z.string().min(1).default("openai-demo-bi-metrics-copilot"),
+    DATABRICKS_SERVER_HOSTNAME: z.string().min(1).optional(),
+    DATABRICKS_HTTP_PATH: z.string().min(1).optional(),
+    DATABRICKS_TOKEN: z.string().min(1).optional(),
+    DATABRICKS_CATALOG: z.string().min(1).default("main"),
+    DATABRICKS_SCHEMA: z.string().min(1).default("bi_demo"),
+    ENABLE_DATABRICKS_EXECUTION: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    USE_MOCK_DATABRICKS: z
+      .enum(["true", "false"])
+      .default("true")
+      .transform((value) => value === "true"),
   },
   runtimeEnv: process.env,
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,

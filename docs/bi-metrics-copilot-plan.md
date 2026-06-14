@@ -57,26 +57,58 @@ The project should demonstrate:
 
 The current repository already aligns with several planned technologies:
 
-- Bun workspaces are configured at the root.
-- Turborepo is configured for build, dev, type-checking, and database tasks.
-- `apps/web` uses TanStack Start, React, TanStack Router, TanStack Query, Vite, Tailwind CSS, and shared UI components.
-- `apps/server` uses Hono and exposes a basic health route plus Better Auth endpoints.
-- `packages/db` uses Drizzle with SQLite/libSQL.
-- `packages/auth` uses Better Auth.
-- `packages/env` uses typed environment validation.
-- oxlint and oxfmt are installed and exposed through `bun run check`.
+- [x] Bun workspaces are configured at the root.
+- [x] Turborepo is configured for build, dev, type-checking, and database tasks.
+- [x] `apps/web` uses TanStack Start, React, TanStack Router, TanStack Query, Vite, Tailwind CSS, and shared UI components.
+- [x] `apps/server` uses Hono and exposes a basic health route plus Better Auth endpoints.
+- [x] `packages/db` uses Drizzle with SQLite/libSQL.
+- [x] `packages/auth` uses Better Auth.
+- [x] `packages/env` uses typed environment validation.
+- [x] oxlint and oxfmt are installed and exposed through `bun run check`.
+- [x] Vitest is configured for workspace package tests.
+- [x] Project plan documentation exists in `docs/`.
 
-Major planned pieces still to add:
+Major planned pieces:
 
-- `packages/agents` for OpenAI Agents SDK orchestration.
-- `packages/databricks` for SQL Warehouse and metadata access.
-- `packages/rag` or similar for vector store ingestion and retrieval helpers.
-- `packages/evals` for Braintrust datasets, eval runners, and scorers.
-- Agent run persistence tables in `packages/db`.
-- Databricks, OpenAI, and Braintrust environment variables in `packages/env`.
-- Vitest setup and test scripts across packages.
-- UI routes for the copilot workspace, run details, SQL/results tabs, citation panel, and eval dashboard.
-- Streaming API endpoints for agent run progress.
+- [x] `packages/agents` scaffold for OpenAI Agents SDK orchestration.
+- [x] `packages/databricks` scaffold for SQL Warehouse and metadata access.
+- [x] `packages/rag` scaffold for vector store ingestion and retrieval helpers.
+- [x] `packages/evals` scaffold for Braintrust datasets, eval runners, and scorers.
+- [x] Databricks, OpenAI, and Braintrust environment variables are represented in `packages/env`.
+- [x] Example env files exist for the web and server apps.
+- [ ] Real OpenAI Agents SDK implementation in `packages/agents`.
+- [ ] Real Databricks SQL driver implementation in `packages/databricks`.
+- [ ] Real OpenAI vector store/file search implementation in `packages/rag`.
+- [ ] Real Braintrust experiment runner in `packages/evals`.
+- [ ] Agent run persistence tables in `packages/db`.
+- [ ] UI routes for the copilot workspace, run details, SQL/results tabs, citation panel, and eval dashboard.
+- [ ] Streaming API endpoints for agent run progress.
+
+## Hono API Integration
+
+Hono should be the thin HTTP boundary between the TanStack Start frontend and the project packages that contain the real application logic. The backend should not hide core logic inside route handlers. Instead, route handlers should validate input, call package-level services, persist run metadata, and return or stream typed responses.
+
+The package responsibilities should look like this:
+
+- `apps/server`: Hono routes, auth/session handling, CORS, request validation, response shaping, streaming events, and dependency wiring.
+- `packages/agents`: the BI copilot workflow, agent definitions, run plan, handoffs, structured outputs, and OpenAI Agents SDK integration.
+- `packages/rag`: vector store ingestion and metric/table context retrieval.
+- `packages/databricks`: metadata lookup, SQL validation helpers, mock/live query execution, and Databricks SQL Warehouse access.
+- `packages/evals`: Braintrust scenarios, scorers, and experiment runners.
+- `packages/db`: app persistence for users, agent runs, agent steps, SQL drafts, citations, query metadata, and eval summaries.
+
+The intended request flow is:
+
+1. The frontend calls a Hono route such as `POST /api/copilot/runs` with the analyst question.
+2. Hono validates the request with the schema exported by `packages/agents`.
+3. Hono creates an agent run record through `packages/db`.
+4. Hono calls the orchestrator in `packages/agents`.
+5. The orchestrator calls `packages/rag` to retrieve governed context and `packages/databricks` to inspect metadata or execute approved SQL.
+6. Hono streams agent step events back to the frontend through an event stream route such as `GET /api/copilot/runs/:id/events`.
+7. Hono exposes run detail routes for TanStack Query, such as `GET /api/copilot/runs/:id`, `GET /api/copilot/runs/:id/sql`, and `GET /api/copilot/runs/:id/results`.
+8. Hono exposes eval routes such as `POST /api/evals/runs` and `GET /api/evals/runs/:id`, which call `packages/evals`.
+
+This keeps Hono focused on transport and composition while the packages remain reusable from tests, scripts, eval runners, and future background workers.
 
 ## Target Demo Experience
 
@@ -170,11 +202,11 @@ These docs become the vector store knowledge base.
 
 Add packages that match the planned architecture:
 
-- `packages/agents`: agent definitions, tools, orchestration, structured outputs.
-- `packages/databricks`: Databricks SQL client, metadata access, query execution.
-- `packages/rag`: vector store ingestion, file upload manifests, retrieval helpers.
-- `packages/evals`: Braintrust eval datasets, task runner, scorers, CLI scripts.
-- `packages/shared` if cross-package schemas outgrow the current app structure.
+- [x] `packages/agents`: agent definitions, tools, orchestration, structured outputs.
+- [x] `packages/databricks`: Databricks SQL client, metadata access, query execution.
+- [x] `packages/rag`: vector store ingestion, file upload manifests, retrieval helpers.
+- [x] `packages/evals`: Braintrust eval datasets, task runner, scorers, CLI scripts.
+- [ ] `packages/shared` if cross-package schemas outgrow the current app structure.
 
 Keep package boundaries small and practical. Shared Zod schemas can live in `packages/agents` or a dedicated shared package when they are used by both web and server.
 
@@ -182,16 +214,18 @@ Keep package boundaries small and practical. Shared Zod schemas can live in `pac
 
 Add typed environment variables for:
 
-- `OPENAI_API_KEY`
-- `OPENAI_VECTOR_STORE_ID`
-- `BRAINTRUST_API_KEY`
-- `BRAINTRUST_PROJECT_NAME`
-- `DATABRICKS_SERVER_HOSTNAME`
-- `DATABRICKS_HTTP_PATH`
-- `DATABRICKS_TOKEN` or OAuth credentials
-- `DATABRICKS_CATALOG`
-- `DATABRICKS_SCHEMA`
-- Feature flags such as `ENABLE_DATABRICKS_EXECUTION` and `USE_MOCK_DATABRICKS`
+- [x] `OPENAI_API_KEY`
+- [x] `OPENAI_VECTOR_STORE_ID`
+- [x] `BRAINTRUST_API_KEY`
+- [x] `BRAINTRUST_PROJECT_NAME`
+- [x] `DATABRICKS_SERVER_HOSTNAME`
+- [x] `DATABRICKS_HTTP_PATH`
+- [x] `DATABRICKS_TOKEN` or OAuth credentials
+- [x] `DATABRICKS_CATALOG`
+- [x] `DATABRICKS_SCHEMA`
+- [x] Feature flags such as `ENABLE_DATABRICKS_EXECUTION` and `USE_MOCK_DATABRICKS`
+- [x] `apps/server/.env.example`
+- [x] `apps/web/.env.example`
 
 The app should be able to run in mock mode without Databricks credentials.
 
@@ -315,13 +349,13 @@ Run evals locally and in CI.
 
 Use Vitest for:
 
-- SQL safety checks.
-- Databricks adapter interface behavior.
-- Mock Databricks execution.
-- Vector store ingestion manifest logic.
-- Agent structured output parsing.
-- Braintrust scenario loading and scorer helpers.
-- API route schema validation.
+- [x] SQL safety checks.
+- [x] Databricks adapter interface behavior.
+- [x] Mock Databricks execution.
+- [ ] Vector store ingestion manifest logic.
+- [x] Agent structured output parsing.
+- [x] Braintrust scenario loading and scorer helpers.
+- [ ] API route schema validation.
 
 Keep agent behavior tests in Braintrust and deterministic code behavior tests in Vitest.
 

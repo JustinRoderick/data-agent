@@ -72,6 +72,17 @@
         "web-vitals": "^5.2.0",
       },
     },
+    "packages/agents": {
+      "name": "@openai-demo/agents",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@openai-demo/config": "workspace:*",
+        "typescript": "catalog:",
+      },
+    },
     "packages/auth": {
       "name": "@openai-demo/auth",
       "dependencies": {
@@ -89,6 +100,17 @@
     "packages/config": {
       "name": "@openai-demo/config",
       "version": "0.0.0",
+    },
+    "packages/databricks": {
+      "name": "@openai-demo/databricks",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@openai-demo/config": "workspace:*",
+        "typescript": "catalog:",
+      },
     },
     "packages/db": {
       "name": "@openai-demo/db",
@@ -117,6 +139,28 @@
       "devDependencies": {
         "@openai-demo/config": "workspace:*",
         "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/evals": {
+      "name": "@openai-demo/evals",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@openai-demo/config": "workspace:*",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/rag": {
+      "name": "@openai-demo/rag",
+      "version": "0.0.0",
+      "dependencies": {
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@openai-demo/config": "workspace:*",
         "typescript": "catalog:",
       },
     },
@@ -424,13 +468,21 @@
 
     "@open-draft/until": ["@open-draft/until@2.1.0", "", {}, "sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg=="],
 
+    "@openai-demo/agents": ["@openai-demo/agents@workspace:packages/agents"],
+
     "@openai-demo/auth": ["@openai-demo/auth@workspace:packages/auth"],
 
     "@openai-demo/config": ["@openai-demo/config@workspace:packages/config"],
 
+    "@openai-demo/databricks": ["@openai-demo/databricks@workspace:packages/databricks"],
+
     "@openai-demo/db": ["@openai-demo/db@workspace:packages/db"],
 
     "@openai-demo/env": ["@openai-demo/env@workspace:packages/env"],
+
+    "@openai-demo/evals": ["@openai-demo/evals@workspace:packages/evals"],
+
+    "@openai-demo/rag": ["@openai-demo/rag@workspace:packages/rag"],
 
     "@openai-demo/ui": ["@openai-demo/ui@workspace:packages/ui"],
 
