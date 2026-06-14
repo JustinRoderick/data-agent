@@ -52,22 +52,20 @@ const batch = await client.vectorStores.fileBatches.uploadAndPoll(
   },
 );
 
-const vectorStoreFiles = await collectAsyncIterable(
-  client.vectorStores.fileBatches.listFiles(batch.id, {
-    vector_store_id: vectorStore.id,
-  }),
-);
+const updatedVectorStore = await client.vectorStores.retrieve(vectorStore.id);
+const vectorStoreFiles = await collectAsyncIterable(client.vectorStores.files.list(vectorStore.id));
+const uploadBatchId = batch.id.startsWith("vsfb_") ? batch.id : undefined;
 
 await mkdir("knowledge", { recursive: true });
 await writeFile(
   manifestPath,
   `${JSON.stringify(
     {
-      vectorStoreId: vectorStore.id,
-      vectorStoreName: vectorStore.name,
-      batchId: batch.id,
-      status: batch.status,
-      fileCounts: batch.file_counts,
+      vectorStoreId: updatedVectorStore.id,
+      vectorStoreName: updatedVectorStore.name,
+      uploadBatchId,
+      status: updatedVectorStore.status,
+      fileCounts: updatedVectorStore.file_counts,
       files: await Promise.all(
         files.map(async (filePath, index) => {
           const bytes = await readFile(filePath);
@@ -89,13 +87,15 @@ await writeFile(
   )}\n`,
 );
 
-console.log(`Vector store: ${vectorStore.id}`);
-console.log(`Batch: ${batch.id}`);
-console.log(`Status: ${batch.status}`);
+console.log(`Vector store: ${updatedVectorStore.id}`);
+if (uploadBatchId) {
+  console.log(`Upload batch: ${uploadBatchId}`);
+}
+console.log(`Status: ${updatedVectorStore.status}`);
 console.log(`Manifest: ${manifestPath}`);
 console.log("");
 console.log("Add this to apps/server/.env:");
-console.log(`OPENAI_VECTOR_STORE_ID=${vectorStore.id}`);
+console.log(`OPENAI_VECTOR_STORE_ID=${updatedVectorStore.id}`);
 
 async function listMarkdownFiles(rootDir: string): Promise<string[]> {
   const entries = await readdir(rootDir, { withFileTypes: true });
