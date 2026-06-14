@@ -1,0 +1,3 @@
+{
+  "extends": "@openai-demo/config/tsconfig.base.json"
+}

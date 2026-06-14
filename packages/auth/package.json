@@ -1,0 +1,24 @@
+{
+  "name": "@openai-demo/auth",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./src/index.ts"
+    },
+    "./*": {
+      "default": "./src/*.ts"
+    }
+  },
+  "scripts": {},
+  "dependencies": {
+    "@openai-demo/db": "workspace:*",
+    "@openai-demo/env": "workspace:*",
+    "better-auth": "catalog:",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@openai-demo/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
