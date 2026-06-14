@@ -36,7 +36,8 @@
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f",
     "check": "oxlint && oxfmt --write",
-    "test": "vitest"
+    "test": "vitest",
+    "data:prepare:gcp-billing": "bun run scripts/prepare-gcp-billing-data.ts"
   },
   "dependencies": {
     "@openai-demo/env": "workspace:*",

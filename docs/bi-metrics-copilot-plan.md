@@ -1,14 +1,14 @@
-# BI Metrics Copilot For Databricks
+# Cloud Cost Metrics Copilot For Databricks
 
 ## Project Goal
 
-Build a BI Metrics Copilot that lets an analyst ask governed metric questions in natural language, retrieves metric and table context from a RAG knowledge base, generates Databricks SQL, validates the query through safety checks and a sandbox agent, optionally executes against Databricks, and returns a cited BI-style answer with traceable reasoning and evaluation results.
+Build a Cloud Cost Metrics Copilot that lets an analyst ask governed cloud billing and FinOps questions in natural language, retrieves metric and table context from a RAG knowledge base, generates Databricks SQL, validates the query through safety checks and a sandbox agent, optionally executes against Databricks, and returns a cited BI-style answer with traceable reasoning and evaluation results.
 
 The project should demonstrate:
 
 - OpenAI Agents SDK multi-agent orchestration.
 - An OpenAI sandbox agent for SQL/Python validation before live execution.
-- OpenAI vector stores/file search for RAG over metric definitions, table docs, dashboard notes, and BI runbooks.
+- OpenAI vector stores/file search for RAG over cloud cost metric definitions, table docs, FinOps notes, and BI runbooks.
 - Databricks integration for SQL Warehouse execution and metadata lookup.
 - Braintrust evals for regression testing the full agentic workflow.
 - A TypeScript-first application stack with TanStack Start, Hono, Bun, Vite, Vitest, oxlint, and oxfmt.
@@ -42,7 +42,8 @@ The project should demonstrate:
 - Databricks SQL Warehouse as the live query target.
 - Databricks SQL Driver for Node.js for backend query execution.
 - Unity Catalog or `information_schema` queries for schema/table/column metadata.
-- Demo seed tables for revenue, customer, product, usage, and date dimensions.
+- Kaggle GCP cloud billing data as the demo billing fact table.
+- Optional derived dimensions for service, region, usage unit, and date.
 - Local mock data for offline sandbox validation.
 
 ### Persistence And Tooling
@@ -76,6 +77,10 @@ Major planned pieces:
 - [x] `packages/evals` scaffold for Braintrust datasets, eval runners, and scorers.
 - [x] Databricks, OpenAI, and Braintrust environment variables are represented in `packages/env`.
 - [x] Example env files exist for the web and server apps.
+- [x] Kaggle GCP cloud billing dataset is downloaded locally.
+- [x] Normalized Databricks-ready CSV exists at `data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv`.
+- [x] Databricks DDL exists at `data/kaggle/gcp-cloud-billing-data/schema/databricks-ddl.sql`.
+- [x] Initial cloud cost metric, table, and runbook docs exist under `knowledge/`.
 - [ ] Real OpenAI Agents SDK implementation in `packages/agents`.
 - [ ] Real Databricks SQL driver implementation in `packages/databricks`.
 - [ ] Real OpenAI vector store/file search implementation in `packages/rag`.
@@ -91,8 +96,8 @@ Hono should be the thin HTTP boundary between the TanStack Start frontend and th
 The package responsibilities should look like this:
 
 - `apps/server`: Hono routes, auth/session handling, CORS, request validation, response shaping, streaming events, and dependency wiring.
-- `packages/agents`: the BI copilot workflow, agent definitions, run plan, handoffs, structured outputs, and OpenAI Agents SDK integration.
-- `packages/rag`: vector store ingestion and metric/table context retrieval.
+- `packages/agents`: the cloud cost copilot workflow, agent definitions, run plan, handoffs, structured outputs, and OpenAI Agents SDK integration.
+- `packages/rag`: vector store ingestion and cloud cost metric/table context retrieval.
 - `packages/databricks`: metadata lookup, SQL validation helpers, mock/live query execution, and Databricks SQL Warehouse access.
 - `packages/evals`: Braintrust scenarios, scorers, and experiment runners.
 - `packages/db`: app persistence for users, agent runs, agent steps, SQL drafts, citations, query metadata, and eval summaries.
@@ -112,11 +117,11 @@ This keeps Hono focused on transport and composition while the packages remain r
 
 ## Target Demo Experience
 
-The first screen should be the working BI copilot, not a marketing page.
+The first screen should be the working cloud cost copilot, not a marketing page.
 
 An analyst asks:
 
-> What was weekly revenue by customer segment last quarter, and why did Enterprise dip in March?
+> What were the top GCP cloud cost drivers in August 2024, and which services or regions explain the increase?
 
 The app should show:
 
@@ -127,7 +132,7 @@ The app should show:
 - Sandbox validation status.
 - Databricks execution status.
 - Query results.
-- Final BI-style answer with caveats and citations.
+- Final FinOps/BI-style answer with caveats and citations.
 - Related eval coverage and pass/fail status for similar scenarios.
 
 ## Agent Workflow
@@ -138,7 +143,7 @@ Owns the overall workflow. It interprets the user question, decides which specia
 
 ### Metric Catalog/RAG Agent
 
-Searches the OpenAI vector store for metric definitions, glossary entries, table documentation, dashboard notes, and runbooks. It should return cited context, not free-form guesses.
+Searches the OpenAI vector store for cloud cost metric definitions, glossary entries, table documentation, tagging/allocation guidance, dashboard notes, and runbooks. It should return cited context, not free-form guesses.
 
 ### Schema Agent
 
@@ -168,33 +173,37 @@ Turns validated results into a concise BI answer with metric definitions, caveat
 
 ### 1. Define The Demo Domain
 
-Choose a realistic BI domain such as revenue analytics, customer retention, product usage, or sales pipeline. Define the business story, stakeholders, and the metrics the demo should answer. Create 8-12 canonical questions that cover successful answers, ambiguous requests, unsupported metrics, and unsafe requests.
+Use cloud cost analytics as the demo domain. The business story is a FinOps/BI analyst helping engineering and platform teams understand GCP spend, cost drivers, regional patterns, and utilization-related cost changes. Create 8-12 canonical questions that cover successful answers, ambiguous requests, unsupported metrics, and unsafe requests.
 
 Recommended starting domain:
 
-- Revenue analytics for a SaaS-style business.
-- Metrics: revenue, net revenue retention, active customers, average revenue per account, churned revenue, expansion revenue.
-- Dimensions: customer segment, product, region, date, channel.
+- Cloud cost analytics for a GCP environment.
+- Primary metric: `cloud_spend_usd`, defined as `SUM(rounded_cost_usd)`.
+- Supporting metrics: usage quantity, average CPU utilization, average memory utilization, inbound network bytes, outbound network bytes, resource count, and cost per usage quantity.
+- Dimensions: service, region/zone, usage unit, resource, and date.
+- Current dataset window: June 30, 2024 through September 3, 2024.
+- Current dataset size: 1,000 billing usage records.
 
 ### 2. Create Demo Data And Documentation
 
-Create a small but realistic data model:
+Use the Kaggle `sairamn19/gcp-cloud-billing-data` dataset as the source data:
 
-- `fact_orders` or `fact_revenue`
-- `fact_usage`
-- `dim_customer`
-- `dim_product`
-- `dim_date`
-- Optional `dim_region`
+- [x] Download raw Kaggle archive into `data/kaggle/gcp-cloud-billing-data/raw/`.
+- [x] Extract `gcp_final_approved_dataset.csv`.
+- [x] Normalize the source file into `data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv`.
+- [x] Generate a profile at `data/kaggle/gcp-cloud-billing-data/processed/profile.json`.
+- [x] Add Databricks DDL at `data/kaggle/gcp-cloud-billing-data/schema/databricks-ddl.sql`.
+- [ ] Load the processed CSV into Databricks as `bi_demo.gcp_billing_usage`.
+- [ ] Add optional derived views such as `daily_cloud_spend`, `service_cost_summary`, and `regional_cost_summary`.
 
 Create documentation files for:
 
-- Metric definitions.
-- Table and column descriptions.
-- Approved join paths.
-- Dashboard notes.
-- Known caveats.
-- BI style and answer guidelines.
+- [x] Metric definitions.
+- [x] Table and column descriptions.
+- [ ] Approved SQL patterns.
+- [x] Cost spike analysis runbook.
+- [ ] Known caveats and missing billing export fields.
+- [ ] FinOps answer style guidelines.
 
 These docs become the vector store knowledge base.
 
@@ -242,6 +251,14 @@ Build a small Databricks client wrapper with methods for:
 
 Add a mock Databricks adapter with the same interface so the demo and tests can run locally.
 
+For this dataset, the first live Databricks target is:
+
+```txt
+bi_demo.gcp_billing_usage
+```
+
+Use `data/kaggle/gcp-cloud-billing-data/schema/databricks-ddl.sql` to create the table. Upload `data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv` to a Databricks volume or external location, then run the `COPY INTO` pattern from the DDL file.
+
 ### 6. Build Vector Store Ingestion
 
 Create an ingestion script that:
@@ -258,12 +275,21 @@ Use the vector store in the Metric Catalog/RAG Agent.
 
 Implement the simplest useful workflow:
 
-1. User asks a metric question.
+1. User asks a cloud cost metric question.
 2. Coordinator calls the Metric Catalog/RAG Agent.
 3. SQL Analyst drafts SQL.
 4. Narrative Agent returns a proposed answer and assumptions.
 
 At this stage, skip live Databricks execution and focus on agent handoffs, structured outputs, and traceability.
+
+Recommended first questions:
+
+- What were the top GCP services by cloud spend in August 2024?
+- Which regions had the highest cloud spend?
+- Which services had the highest average CPU utilization?
+- Which services had high cost but low CPU utilization?
+- What changed between July 2024 and August 2024?
+- Which resources contributed most to total cloud spend?
 
 ### 8. Add SQL Safety And Sandbox Validation
 
@@ -324,10 +350,10 @@ Use TanStack Query for normal reads/mutations and a streaming channel for live r
 
 Create curated eval scenarios covering:
 
-- Correct metric selection.
+- Correct cloud cost metric selection.
 - Correct table selection.
 - Correct date grain and filters.
-- Safe SQL generation.
+- Safe Databricks SQL generation.
 - Sandbox-before-Databricks behavior.
 - Citation grounding.
 - Ambiguous question clarification.
@@ -393,27 +419,48 @@ Add:
 
 ### Milestone 1: Scaffold Alignment
 
-Confirm the monorepo builds, type-checks, and runs. Add project docs, missing env keys, and package boundaries.
+- [x] Confirm the monorepo type-checks and tests run.
+- [x] Add project docs.
+- [x] Add missing env examples and typed env keys.
+- [x] Add package boundaries for agents, Databricks, RAG, and evals.
 
-### Milestone 2: Mock Copilot
+### Milestone 2: Cloud Billing Data Foundation
 
-Run an end-to-end agent workflow using local docs and mock data only.
+- [x] Select Kaggle `GCP-Cloud-Billing-Data` as the canonical demo dataset.
+- [x] Download and extract the raw dataset.
+- [x] Normalize the dataset into a Databricks-ready CSV.
+- [x] Generate a dataset profile.
+- [x] Add Databricks table DDL.
+- [x] Add initial cloud cost knowledge docs.
+- [ ] Load the processed CSV into Databricks.
+- [ ] Create optional summary views for daily, service, and regional cost.
 
-### Milestone 3: RAG And Sandbox
+### Milestone 3: Mock Copilot
 
-Ingest docs into OpenAI vector stores and validate generated SQL through deterministic checks plus sandbox agent execution.
+- [ ] Run an end-to-end agent workflow using local docs and mock cloud billing data only.
 
-### Milestone 4: Databricks Live Mode
+### Milestone 4: RAG And Sandbox
 
-Connect to Databricks SQL Warehouse, execute approved queries, and render results in the UI.
+- [ ] Ingest docs into OpenAI vector stores.
+- [ ] Validate generated SQL through deterministic checks plus sandbox agent execution.
 
-### Milestone 5: Braintrust Evaluation
+### Milestone 5: Databricks Live Mode
 
-Run curated scenarios through Braintrust and show regression scores for the full workflow.
+- [ ] Connect to Databricks SQL Warehouse.
+- [ ] Execute approved queries.
+- [ ] Render results in the UI.
 
-### Milestone 6: Demo Polish
+### Milestone 6: Braintrust Evaluation
 
-Refine the UI, add trace/run details, document setup, and prepare the final demo flow.
+- [ ] Run curated scenarios through Braintrust.
+- [ ] Show regression scores for the full workflow.
+
+### Milestone 7: Demo Polish
+
+- [ ] Refine the UI.
+- [ ] Add trace/run details.
+- [ ] Document setup.
+- [ ] Prepare the final demo flow.
 
 ## Notes On Technology Fit
 
