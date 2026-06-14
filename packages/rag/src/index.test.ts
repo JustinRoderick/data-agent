@@ -1,6 +1,10 @@
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
-import { InMemoryRagConnector, tokenize } from "./index";
+import { InMemoryRagConnector, loadKnowledgeDocumentsFromDirectory, tokenize } from "./index";
+
+const knowledgeDir = fileURLToPath(new URL("../../../knowledge", import.meta.url));
 
 describe("rag scaffold", () => {
   it("tokenizes search text", () => {
@@ -24,5 +28,11 @@ describe("rag scaffold", () => {
         score: 3,
       },
     ]);
+  });
+
+  it("loads local knowledge markdown documents", async () => {
+    const documents = await loadKnowledgeDocumentsFromDirectory(knowledgeDir);
+
+    expect(documents.some((document) => document.id === "metrics-cloud_spend_usd-md")).toBe(true);
   });
 });

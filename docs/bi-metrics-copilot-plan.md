@@ -81,9 +81,11 @@ Major planned pieces:
 - [x] Normalized Databricks-ready CSV exists at `data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv`.
 - [x] Databricks DDL exists at `data/kaggle/gcp-cloud-billing-data/schema/databricks-ddl.sql`.
 - [x] Initial cloud cost metric, table, and runbook docs exist under `knowledge/`.
-- [ ] Real OpenAI Agents SDK implementation in `packages/agents`.
+- [x] OpenAI Agents SDK dependency and agent definition scaffold in `packages/agents`.
+- [ ] Full model-backed OpenAI Agents SDK run path in `packages/agents`.
 - [x] Real Databricks SQL driver implementation in `packages/databricks`.
-- [ ] Real OpenAI vector store/file search implementation in `packages/rag`.
+- [x] OpenAI vector store/file search connector in `packages/rag`.
+- [ ] Vector store ingestion script for local `knowledge/` docs.
 - [ ] Real Braintrust experiment runner in `packages/evals`.
 - [ ] Agent run persistence tables in `packages/db`.
 - [ ] UI routes for the copilot workspace, run details, SQL/results tabs, citation panel, and eval dashboard.
@@ -264,11 +266,13 @@ Use `data/kaggle/gcp-cloud-billing-data/schema/databricks-ddl.sql` to create the
 
 Create an ingestion script that:
 
-- Reads docs from a local knowledge-base directory.
-- Uploads docs to OpenAI.
-- Creates or updates a vector store.
-- Persists the vector store ID.
-- Writes an ingestion manifest with filenames, file IDs, timestamps, and checksums.
+- [x] Reads docs from a local knowledge-base directory.
+- [x] Provides a RAG interface with both local and OpenAI vector-store implementations.
+- [x] Searches an existing OpenAI vector store by `OPENAI_VECTOR_STORE_ID`.
+- [ ] Uploads docs to OpenAI.
+- [ ] Creates or updates a vector store.
+- [ ] Persists the vector store ID.
+- [ ] Writes an ingestion manifest with filenames, file IDs, timestamps, and checksums.
 
 Use the vector store in the Metric Catalog/RAG Agent.
 
@@ -276,12 +280,17 @@ Use the vector store in the Metric Catalog/RAG Agent.
 
 Implement the simplest useful workflow:
 
-1. User asks a cloud cost metric question.
-2. Coordinator calls the Metric Catalog/RAG Agent.
-3. SQL Analyst drafts SQL.
-4. Narrative Agent returns a proposed answer and assumptions.
+- [x] User asks a cloud cost metric question.
+- [x] Coordinator creates a run plan.
+- [x] RAG retrieves metric/table/runbook context.
+- [x] SQL analyst scaffold drafts SQL for first cost questions.
+- [x] Read-only SQL guard validates the generated query.
+- [x] Databricks connector executes the approved query.
+- [x] Narrative scaffold returns a proposed answer and citations.
+- [ ] Replace deterministic SQL selection with model-backed agent orchestration.
+- [ ] Add streaming step events for Hono/UI.
 
-At this stage, skip live Databricks execution and focus on agent handoffs, structured outputs, and traceability.
+At this stage, the deterministic first slice is ready for Hono integration. Next, replace the deterministic SQL planner with model-backed Agents SDK orchestration while keeping the same package interface.
 
 Recommended first questions:
 
@@ -438,10 +447,13 @@ Add:
 
 ### Milestone 3: Mock Copilot
 
-- [ ] Run an end-to-end agent workflow using local docs and mock cloud billing data only.
+- [x] Run an end-to-end agent workflow using local docs and mock cloud billing data only.
+- [ ] Expose the workflow through Hono.
+- [ ] Render the workflow in the frontend.
 
 ### Milestone 4: RAG And Sandbox
 
+- [x] Add an OpenAI vector-store search connector.
 - [ ] Ingest docs into OpenAI vector stores.
 - [ ] Validate generated SQL through deterministic checks plus sandbox agent execution.
 
