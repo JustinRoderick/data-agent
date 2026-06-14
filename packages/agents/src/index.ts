@@ -1,4 +1,4 @@
-import { Agent, tool } from "@openai/agents";
+import { Agent, run, tool } from "@openai/agents";
 import type { DatabricksConnector, DatabricksQueryResult } from "@openai-demo/databricks";
 import { assertReadOnlySql } from "@openai-demo/databricks";
 import type { RagConnector, RetrievedContext } from "@openai-demo/rag";
@@ -27,6 +27,14 @@ export interface AgentStep {
   name: AgentStepName;
   status: AgentStepStatus;
   summary: string;
+}
+
+export interface CopilotRunEvent {
+  type: "step" | "sql" | "result" | "error";
+  step?: AgentStepName;
+  status?: AgentStepStatus;
+  message: string;
+  data?: unknown;
 }
 
 export interface CopilotRunPlan {
@@ -62,6 +70,9 @@ export interface CloudCostCopilotDependencies {
   databricks: DatabricksConnector;
   rag: RagConnector;
   tableName?: string;
+  useModel?: boolean;
+  model?: string;
+  onEvent?: (event: CopilotRunEvent) => void | Promise<void>;
 }
 
 export function createInitialRunPlan(input: CopilotQuestion): CopilotRunPlan {
@@ -108,16 +119,94 @@ export async function runCloudCostCopilot(
 ): Promise<CloudCostCopilotResult> {
   const plan = createInitialRunPlan(input);
   const tableName = dependencies.tableName ?? "gcp_billing_usage";
+  await emit(dependencies, {
+    type: "step",
+    step: "coordinator",
+    status: "running",
+    message: "Started cloud cost copilot run.",
+  });
+
+  await emit(dependencies, {
+    type: "step",
+    step: "metric_catalog",
+    status: "running",
+    message: "Retrieving metric and table context.",
+  });
   const citations = await dependencies.rag.search(input.question, { limit: 4 });
-  const sql = buildCloudCostSql(input.question, tableName);
+  await emit(dependencies, {
+    type: "step",
+    step: "metric_catalog",
+    status: "completed",
+    message: `Retrieved ${citations.length} context documents.`,
+    data: citations,
+  });
 
+  await emit(dependencies, {
+    type: "step",
+    step: "sql_analyst",
+    status: "running",
+    message: dependencies.useModel
+      ? "Generating SQL with OpenAI Agents SDK."
+      : "Generating SQL with deterministic planner.",
+  });
+  const sql = dependencies.useModel
+    ? await buildModelBackedCloudCostSql(input.question, tableName, citations, dependencies)
+    : buildCloudCostSql(input.question, tableName);
+
+  await emit(dependencies, {
+    type: "sql",
+    step: "sql_analyst",
+    status: "completed",
+    message: "Generated Databricks SQL.",
+    data: { sql },
+  });
+
+  await emit(dependencies, {
+    type: "step",
+    step: "sql_safety",
+    status: "running",
+    message: "Checking generated SQL safety.",
+  });
   assertReadOnlySql(sql);
+  await emit(dependencies, {
+    type: "step",
+    step: "sql_safety",
+    status: "completed",
+    message: "SQL passed read-only safety checks.",
+  });
 
+  await emit(dependencies, {
+    type: "step",
+    step: "databricks_execution",
+    status: "running",
+    message: "Executing approved SQL in Databricks.",
+  });
   const queryResult = await dependencies.databricks.runReadOnlyQuery(sql);
+  await emit(dependencies, {
+    type: "result",
+    step: "databricks_execution",
+    status: "completed",
+    message: `Databricks returned ${queryResult.rowCount} rows.`,
+    data: queryResult,
+  });
+
+  await emit(dependencies, {
+    type: "step",
+    step: "narrative",
+    status: "running",
+    message: "Creating final FinOps answer.",
+  });
+  const answer = summarizeCloudCostResult(input.question, queryResult, citations);
+  await emit(dependencies, {
+    type: "step",
+    step: "narrative",
+    status: "completed",
+    message: "Final answer created.",
+  });
 
   return cloudCostCopilotResultSchema.parse({
     question: input.question,
-    answer: summarizeCloudCostResult(input.question, queryResult, citations),
+    answer,
     sql,
     citations: citations.map((citation) => ({
       title: citation.title,
@@ -231,6 +320,50 @@ function buildCloudCostSql(question: string, tableName: string): string {
   `;
 }
 
+async function buildModelBackedCloudCostSql(
+  question: string,
+  tableName: string,
+  citations: RetrievedContext[],
+  dependencies: CloudCostCopilotDependencies,
+): Promise<string> {
+  const sqlGeneratorAgent = new Agent({
+    name: "Databricks SQL Generator Agent",
+    instructions:
+      "Generate exactly one safe, read-only Databricks SQL query. Return only SQL. Do not call tools. Do not use Markdown.",
+  });
+  const context = citations
+    .map((citation) => `# ${citation.title}\n${citation.excerpt}`)
+    .join("\n\n");
+  const result = await run(
+    sqlGeneratorAgent,
+    [
+      "Create one Databricks SQL SELECT query for the user question.",
+      "Return only SQL. Do not wrap it in Markdown.",
+      `Table: ${tableName}`,
+      "Default date window: August 2024 unless the user asks for another period.",
+      "Use rounded_cost_usd for cloud spend.",
+      `Retrieved context:\n${context}`,
+      `Question: ${question}`,
+    ].join("\n\n"),
+    {
+      maxTurns: 3,
+      ...(dependencies.model ? { model: dependencies.model } : {}),
+    },
+  );
+  const output = String(result.finalOutput ?? "").trim();
+  const sql = extractSql(output);
+
+  return sql || buildCloudCostSql(question, tableName);
+}
+
+function extractSql(output: string): string {
+  return output
+    .replace(/^```sql\s*/iu, "")
+    .replace(/^```\s*/u, "")
+    .replace(/```$/u, "")
+    .trim();
+}
+
 function summarizeCloudCostResult(
   question: string,
   queryResult: DatabricksQueryResult,
@@ -247,4 +380,11 @@ function summarizeCloudCostResult(
   return `The query returned ${queryResult.rowCount} rows for: ${question}. The top result is ${JSON.stringify(
     topRow,
   )}.${citationText}`;
+}
+
+async function emit(
+  dependencies: Pick<CloudCostCopilotDependencies, "onEvent">,
+  event: CopilotRunEvent,
+): Promise<void> {
+  await dependencies.onEvent?.(event);
 }

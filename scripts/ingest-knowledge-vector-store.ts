@@ -1,0 +1,122 @@
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { basename, extname, join, relative } from "node:path";
+
+import OpenAI, { toFile } from "openai";
+import { config } from "dotenv";
+
+config({ path: "apps/server/.env" });
+
+const knowledgeDir = "knowledge";
+const manifestPath = "knowledge/vector-store-manifest.json";
+const apiKey = process.env.OPENAI_API_KEY;
+
+if (!apiKey) {
+  throw new Error("OPENAI_API_KEY is required to ingest knowledge docs.");
+}
+
+const client = new OpenAI({ apiKey });
+const files = await listMarkdownFiles(knowledgeDir);
+
+if (files.length === 0) {
+  throw new Error(`No markdown files found in ${knowledgeDir}.`);
+}
+
+const vectorStore = process.env.OPENAI_VECTOR_STORE_ID
+  ? await client.vectorStores.retrieve(process.env.OPENAI_VECTOR_STORE_ID)
+  : await client.vectorStores.create({
+      name: "Cloud Cost Metrics Copilot Knowledge",
+      description: "Cloud cost metric, table, and runbook docs for the Databricks demo.",
+      metadata: {
+        app: "openai-demo",
+        domain: "cloud-cost",
+      },
+    });
+
+const uploadables = await Promise.all(
+  files.map(async (filePath) => {
+    const bytes = await readFile(filePath);
+    return toFile(bytes, relative(knowledgeDir, filePath), {
+      type: "text/markdown",
+    });
+  }),
+);
+
+const batch = await client.vectorStores.fileBatches.uploadAndPoll(
+  vectorStore.id,
+  {
+    files: uploadables,
+  },
+  {
+    pollIntervalMs: 1000,
+  },
+);
+const vectorStoreFiles = await client.vectorStores.fileBatches
+  .listFiles(batch.id, {
+    vector_store_id: vectorStore.id,
+  })
+  .getPaginatedItems();
+
+await mkdir("knowledge", { recursive: true });
+await writeFile(
+  manifestPath,
+  `${JSON.stringify(
+    {
+      vectorStoreId: vectorStore.id,
+      vectorStoreName: vectorStore.name,
+      batchId: batch.id,
+      status: batch.status,
+      fileCounts: batch.file_counts,
+      files: await Promise.all(
+        files.map(async (filePath, index) => {
+          const bytes = await readFile(filePath);
+          const vectorStoreFile = vectorStoreFiles[index];
+
+          return {
+            path: relative(knowledgeDir, filePath),
+            title: titleFromPath(filePath),
+            sha256: createHash("sha256").update(bytes).digest("hex"),
+            vectorStoreFileId: vectorStoreFile?.id,
+            vectorStoreFileStatus: vectorStoreFile?.status,
+          };
+        }),
+      ),
+      ingestedAt: new Date().toISOString(),
+    },
+    null,
+    2,
+  )}\n`,
+);
+
+console.log(`Vector store: ${vectorStore.id}`);
+console.log(`Batch: ${batch.id}`);
+console.log(`Status: ${batch.status}`);
+console.log(`Manifest: ${manifestPath}`);
+console.log("");
+console.log("Add this to apps/server/.env:");
+console.log(`OPENAI_VECTOR_STORE_ID=${vectorStore.id}`);
+
+async function listMarkdownFiles(rootDir: string): Promise<string[]> {
+  const entries = await readdir(rootDir, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const entryPath = join(rootDir, entry.name);
+
+      if (entry.isDirectory()) {
+        return listMarkdownFiles(entryPath);
+      }
+
+      if (entry.isFile() && extname(entry.name) === ".md") {
+        return [entryPath];
+      }
+
+      return [];
+    }),
+  );
+
+  return files.flat().sort();
+}
+
+function titleFromPath(filePath: string): string {
+  return basename(filePath, extname(filePath)).replaceAll(/[-_]+/gu, " ");
+}

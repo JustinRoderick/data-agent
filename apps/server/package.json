@@ -10,9 +10,12 @@
     "start": "bun run dist/index.mjs"
   },
   "dependencies": {
+    "@openai-demo/agents": "workspace:*",
     "@openai-demo/auth": "workspace:*",
+    "@openai-demo/databricks": "workspace:*",
     "@openai-demo/db": "workspace:*",
     "@openai-demo/env": "workspace:*",
+    "@openai-demo/rag": "workspace:*",
     "better-auth": "catalog:",
     "dotenv": "catalog:",
     "hono": "^4.8.2",

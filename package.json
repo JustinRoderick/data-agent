@@ -38,12 +38,14 @@
     "check": "oxlint && oxfmt --write",
     "test": "vitest",
     "data:prepare:gcp-billing": "bun run scripts/prepare-gcp-billing-data.ts",
-    "databricks:check": "bun run scripts/check-databricks-connection.ts"
+    "databricks:check": "bun run scripts/check-databricks-connection.ts",
+    "rag:ingest": "bun run scripts/ingest-knowledge-vector-store.ts"
   },
   "dependencies": {
     "@openai-demo/databricks": "workspace:*",
     "@openai-demo/env": "workspace:*",
     "dotenv": "catalog:",
+    "openai": "^6.42.0",
     "zod": "catalog:"
   },
   "devDependencies": {

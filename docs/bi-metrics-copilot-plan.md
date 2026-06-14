@@ -106,14 +106,15 @@ The package responsibilities should look like this:
 
 The intended request flow is:
 
-1. The frontend calls a Hono route such as `POST /api/copilot/runs` with the analyst question.
-2. Hono validates the request with the schema exported by `packages/agents`.
-3. Hono creates an agent run record through `packages/db`.
-4. Hono calls the orchestrator in `packages/agents`.
-5. The orchestrator calls `packages/rag` to retrieve governed context and `packages/databricks` to inspect metadata or execute approved SQL.
-6. Hono streams agent step events back to the frontend through an event stream route such as `GET /api/copilot/runs/:id/events`.
-7. Hono exposes run detail routes for TanStack Query, such as `GET /api/copilot/runs/:id`, `GET /api/copilot/runs/:id/sql`, and `GET /api/copilot/runs/:id/results`.
-8. Hono exposes eval routes such as `POST /api/evals/runs` and `GET /api/evals/runs/:id`, which call `packages/evals`.
+- [x] The frontend calls a Hono route such as `POST /api/copilot/runs` with the analyst question.
+- [x] Hono validates the request with the schema exported by `packages/agents`.
+- [ ] Hono creates an agent run record through `packages/db`.
+- [x] Hono calls the orchestrator in `packages/agents`.
+- [x] The orchestrator calls `packages/rag` to retrieve governed context and `packages/databricks` to inspect metadata or execute approved SQL.
+- [x] Hono streams agent step events back to the frontend through `POST /api/copilot/runs/stream`.
+- [x] Hono exposes a simple event replay endpoint at `GET /api/copilot/runs/:id/events`.
+- [ ] Hono exposes persisted run detail routes for TanStack Query, such as `GET /api/copilot/runs/:id`, `GET /api/copilot/runs/:id/sql`, and `GET /api/copilot/runs/:id/results`.
+- [ ] Hono exposes eval routes such as `POST /api/evals/runs` and `GET /api/evals/runs/:id`, which call `packages/evals`.
 
 This keeps Hono focused on transport and composition while the packages remain reusable from tests, scripts, eval runners, and future background workers.
 
@@ -170,6 +171,283 @@ Executes approved SQL against a Databricks SQL Warehouse. It should capture quer
 ### Narrative Agent
 
 Turns validated results into a concise BI answer with metric definitions, caveats, citations, and suggested follow-up slices.
+
+## Agent Orchestration Plan
+
+The next implementation step is to replace the current deterministic SQL planner with a richer OpenAI Agents SDK workflow while keeping the same public package entry point: `runCloudCostCopilot(...)`. The Hono API and frontend should not need to know whether the answer came from the deterministic fallback or the model-backed multi-agent path.
+
+### Orchestration Shape
+
+The workflow should use a coordinator agent with specialist agents exposed as handoffs or agent-as-tool calls. The coordinator owns the run state and final response, while specialist agents each produce structured outputs that downstream steps can validate.
+
+Recommended run order:
+
+1. **Coordinator Agent** receives the user question and creates a short analysis plan.
+2. **Metric Catalog/RAG Agent** retrieves metric definitions, table docs, and runbook guidance.
+3. **Schema Agent** checks Databricks table metadata for the target billing table.
+4. **SQL Analyst Agent** drafts a single Databricks SQL query and states assumptions.
+5. **SQL Safety Agent** validates the query with deterministic guards and model review.
+6. **Sandbox Agent** validates the query shape against local/mock billing data before live execution.
+7. **Databricks Executor Tool** runs approved SQL against Databricks if live mode is enabled.
+8. **Narrative Agent** turns rows, citations, SQL, and caveats into a final FinOps answer.
+
+The implementation should keep deterministic guardrails outside the model. A model can propose SQL, but `assertReadOnlySql(...)` and table allowlisting must still run before execution.
+
+### Coordinator Agent
+
+Purpose: decide what kind of cloud cost question was asked and orchestrate the specialists.
+
+Responsibilities:
+
+- Classify the question as spend breakdown, trend comparison, utilization analysis, anomaly/root-cause analysis, metadata lookup, or unsupported request.
+- Decide whether the workflow needs RAG, schema lookup, SQL generation, Databricks execution, or clarification.
+- Maintain a compact run plan for UI timeline events.
+- Refuse or ask for clarification when the question lacks a metric, time window, or valid dimension.
+
+Inputs:
+
+- User question.
+- Run mode: mock or live.
+- Available table name and dataset date range.
+
+Outputs:
+
+- Analysis plan.
+- Specialist calls/handoffs.
+- Final answer assembled from specialist outputs.
+
+Tools/handoffs:
+
+- Metric Catalog/RAG Agent.
+- Schema Agent.
+- SQL Analyst Agent.
+- Narrative Agent.
+
+### Metric Catalog/RAG Agent
+
+Purpose: ground the workflow in governed cloud cost definitions and table documentation.
+
+Responsibilities:
+
+- Search local markdown RAG or OpenAI vector store RAG.
+- Return relevant metric definitions, table docs, runbook snippets, and caveats.
+- Identify the canonical metric for spend questions: `cloud_spend_usd = SUM(rounded_cost_usd)`.
+- Identify missing dataset fields that should be caveated, such as project ID, SKU, labels, amortized cost, credits, and discounts.
+
+Inputs:
+
+- User question.
+- Optional query generated by the coordinator.
+
+Outputs:
+
+- Cited context snippets.
+- Recommended metric IDs.
+- Caveats and allowed dimensions.
+
+Tools:
+
+- `search_metric_context`.
+
+### Schema Agent
+
+Purpose: verify available Databricks fields before SQL generation.
+
+Responsibilities:
+
+- Call Databricks metadata methods such as `listColumns("gcp_billing_usage")`.
+- Confirm the table has required fields for the question.
+- Return allowed columns and recommended date/cost fields.
+- Flag unsupported requests, such as project/team/tag allocation questions when labels are absent.
+
+Inputs:
+
+- Target table name.
+- RAG context.
+- User question.
+
+Outputs:
+
+- Table schema summary.
+- Supported/unsupported field assessment.
+- Suggested dimensions and filters.
+
+Tools:
+
+- `list_databricks_columns`.
+- Later: catalog/schema/table listing once implemented.
+
+### SQL Analyst Agent
+
+Purpose: produce a single Databricks SQL query.
+
+Responsibilities:
+
+- Generate one read-only Databricks SQL query.
+- Use `rounded_cost_usd` for spend unless context says otherwise.
+- Use `usage_start_ts` for time filtering.
+- Include safe limits for exploratory breakdowns.
+- Prefer simple, explainable SQL suitable for a BI analyst.
+- Return structured output with SQL, metric ID, dimensions, time window, and assumptions.
+
+Inputs:
+
+- User question.
+- RAG context.
+- Schema summary.
+- Dataset date range.
+
+Outputs:
+
+- SQL draft.
+- Metric ID.
+- Time grain and date predicate.
+- Assumptions.
+
+Important constraint:
+
+- The SQL Analyst Agent proposes SQL only. It should not execute SQL directly.
+
+### SQL Safety Agent
+
+Purpose: review SQL before sandbox or Databricks execution.
+
+Responsibilities:
+
+- Run deterministic `assertReadOnlySql(...)`.
+- Enforce SELECT/WITH only.
+- Block DDL, DML, multiple statements, suspicious comments, and unsupported table references.
+- Confirm the query references only approved tables, initially `gcp_billing_usage`.
+- Confirm a date predicate exists for broad aggregations.
+- Return pass/fail plus a human-readable reason.
+
+Inputs:
+
+- SQL draft.
+- Approved table list.
+- Schema summary.
+
+Outputs:
+
+- Safety decision.
+- Reasons.
+- Optional corrected SQL suggestion.
+
+Tools:
+
+- Deterministic SQL safety helpers in `packages/databricks`.
+
+### Sandbox Agent
+
+Purpose: validate the generated SQL shape before live Databricks execution.
+
+Responsibilities:
+
+- Run or simulate the approved SQL against local/mock GCP billing data.
+- Confirm expected output columns exist.
+- Confirm the query returns rows for the intended date range.
+- Catch obvious semantic errors before using the live warehouse.
+
+Inputs:
+
+- Safety-approved SQL.
+- Local/mock billing rows.
+
+Outputs:
+
+- Sandbox validation result.
+- Preview rows.
+- Warnings about empty results or suspicious output.
+
+Implementation note:
+
+- For the afternoon demo, the existing local mock Databricks connector can act as the sandbox. Later, replace or augment it with an OpenAI sandbox-backed agent.
+
+### Databricks Executor Tool
+
+Purpose: execute only approved SQL against Databricks.
+
+Responsibilities:
+
+- Run read-only SQL through `packages/databricks`.
+- Capture row count, query ID, elapsed time, and result rows.
+- Return errors without hiding Databricks details that are useful for debugging.
+
+Inputs:
+
+- Safety-approved SQL.
+- Live/mock mode.
+
+Outputs:
+
+- Query result.
+- Query metadata.
+
+### Narrative Agent
+
+Purpose: produce the final analyst-facing answer.
+
+Responsibilities:
+
+- Explain the result in FinOps/BI language.
+- Include the metric definition and date window.
+- Mention top services/regions/resources and directional takeaways.
+- Include caveats from RAG context and schema limitations.
+- Keep the answer grounded in returned rows and citations.
+
+Inputs:
+
+- User question.
+- SQL.
+- Query rows.
+- RAG citations.
+- Safety/sandbox outcomes.
+
+Outputs:
+
+- Final answer.
+- Follow-up questions.
+- Citation list.
+- Caveats.
+
+### Structured Outputs
+
+The agent workflow should add Zod schemas for each specialist output:
+
+- `analysisPlanSchema`
+- `retrievedContextSchema`
+- `schemaAssessmentSchema`
+- `sqlDraftSchema`
+- `sqlSafetyResultSchema`
+- `sandboxValidationResultSchema`
+- `narrativeAnswerSchema`
+
+These schemas should become the contract between agents, Hono streaming events, UI panels, and Braintrust scorers.
+
+### Streaming Events
+
+Each agent should emit events through the existing `onEvent` callback:
+
+- `coordinator.started`
+- `metric_catalog.completed`
+- `schema_lookup.completed`
+- `sql_analyst.completed`
+- `sql_safety.completed`
+- `sandbox_validation.completed`
+- `databricks_execution.completed`
+- `narrative.completed`
+
+Each event should include a short message plus structured data where useful, such as citations, columns, SQL, validation result, query metadata, or final answer.
+
+### Implementation Sequence
+
+1. Add Zod schemas for specialist outputs in `packages/agents`.
+2. Add Databricks metadata tool wrappers: `list_databricks_columns`, `preview_databricks_table`, and `run_read_only_databricks_sql`.
+3. Split the current `createCloudCostAgentDefinitions(...)` into named specialist factory functions.
+4. Update `runCloudCostCopilot(...)` to run coordinator -> RAG -> schema -> SQL -> safety -> sandbox -> Databricks -> narrative.
+5. Keep deterministic SQL as fallback when `OPENAI_API_KEY` is missing or model SQL fails validation.
+6. Add unit tests for each structured output parser and safety failure path.
+7. Add Braintrust scenarios for table selection, SQL safety, citation grounding, and unsupported question handling.
 
 ## Chronological Implementation Plan
 
@@ -269,10 +547,11 @@ Create an ingestion script that:
 - [x] Reads docs from a local knowledge-base directory.
 - [x] Provides a RAG interface with both local and OpenAI vector-store implementations.
 - [x] Searches an existing OpenAI vector store by `OPENAI_VECTOR_STORE_ID`.
-- [ ] Uploads docs to OpenAI.
-- [ ] Creates or updates a vector store.
-- [ ] Persists the vector store ID.
-- [ ] Writes an ingestion manifest with filenames, file IDs, timestamps, and checksums.
+- [x] Uploads docs to OpenAI.
+- [x] Creates or updates a vector store.
+- [x] Persists the vector store ID in a generated manifest.
+- [x] Writes an ingestion manifest with filenames, file IDs, timestamps, and checksums.
+- [ ] Automatically update `apps/server/.env` with the generated vector store ID.
 
 Use the vector store in the Metric Catalog/RAG Agent.
 
@@ -287,10 +566,13 @@ Implement the simplest useful workflow:
 - [x] Read-only SQL guard validates the generated query.
 - [x] Databricks connector executes the approved query.
 - [x] Narrative scaffold returns a proposed answer and citations.
-- [ ] Replace deterministic SQL selection with model-backed agent orchestration.
-- [ ] Add streaming step events for Hono/UI.
+- [x] Add opt-in model-backed SQL generation through the OpenAI Agents SDK.
+- [x] Add streaming step events for Hono/UI.
+- [ ] Add structured output schemas for each specialist agent.
+- [ ] Split agent definitions into coordinator, RAG, schema, SQL, safety, sandbox, executor, and narrative factories.
+- [ ] Replace deterministic fallback with richer multi-agent handoffs after UI is working.
 
-At this stage, the deterministic first slice is ready for Hono integration. Next, replace the deterministic SQL planner with model-backed Agents SDK orchestration while keeping the same package interface.
+At this stage, the first slice is exposed through Hono. It can run with a deterministic SQL fallback or opt into model-backed SQL generation when `OPENAI_API_KEY` is configured.
 
 Recommended first questions:
 
@@ -330,15 +612,15 @@ Store run metadata and query results summaries in the app database.
 
 Add Hono routes for:
 
-- Create agent run.
-- Stream agent run events.
-- Get run details.
-- List run history.
-- Get generated SQL and validation reports.
-- Get result summaries.
-- Trigger vector store ingestion.
-- Trigger eval runs.
-- List eval results.
+- [x] Create agent run.
+- [x] Stream agent run events.
+- [ ] Get persisted run details.
+- [ ] List persisted run history.
+- [ ] Get generated SQL and validation reports from persistence.
+- [ ] Get result summaries from persistence.
+- [ ] Trigger vector store ingestion through the API.
+- [ ] Trigger eval runs.
+- [ ] List eval results.
 
 Prefer typed request/response schemas and keep route handlers thin.
 
@@ -448,19 +730,22 @@ Add:
 ### Milestone 3: Mock Copilot
 
 - [x] Run an end-to-end agent workflow using local docs and mock cloud billing data only.
-- [ ] Expose the workflow through Hono.
+- [x] Expose the workflow through Hono.
 - [ ] Render the workflow in the frontend.
 
 ### Milestone 4: RAG And Sandbox
 
 - [x] Add an OpenAI vector-store search connector.
-- [ ] Ingest docs into OpenAI vector stores.
+- [x] Add a script to ingest docs into OpenAI vector stores.
+- [ ] Run vector store ingestion with a real `OPENAI_API_KEY`.
+- [ ] Add Schema Agent metadata lookup.
+- [ ] Add SQL Safety Agent output schema and model review.
 - [ ] Validate generated SQL through deterministic checks plus sandbox agent execution.
 
 ### Milestone 5: Databricks Live Mode
 
-- [ ] Connect to Databricks SQL Warehouse.
-- [ ] Execute approved queries.
+- [x] Connect to Databricks SQL Warehouse.
+- [x] Execute approved queries.
 - [ ] Render results in the UI.
 
 ### Milestone 6: Braintrust Evaluation
