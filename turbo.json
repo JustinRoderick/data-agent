@@ -37,7 +37,13 @@
     "eval:local": {
       "cache": false
     },
+    "eval:local:model": {
+      "cache": false
+    },
     "eval:braintrust": {
+      "cache": false
+    },
+    "eval:braintrust:model": {
       "cache": false
     }
   }
