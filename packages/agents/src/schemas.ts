@@ -71,6 +71,7 @@ export interface CloudCostCopilotDependencies {
   tableName?: string;
   useModel?: boolean;
   model?: string;
+  modelRunner?: (agent: { name: string }, prompt: string) => Promise<unknown>;
   onEvent?: (event: CopilotRunEvent) => void | Promise<void>;
 }
 

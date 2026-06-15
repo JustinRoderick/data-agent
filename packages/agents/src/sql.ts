@@ -66,10 +66,22 @@ export function buildDeterministicSqlDraft(question: string, tableName: string):
 }
 
 export function extractSql(output: string): string {
-  return output
+  const codeBlockMatch = /```(?:sql)?\s*([\s\S]*?)```/iu.exec(output);
+  const candidate = codeBlockMatch?.[1] ?? output;
+  const statementMatch = /\b(?:select|with)\b[\s\S]*/iu.exec(candidate);
+  const statement = statementMatch?.[0] ?? candidate;
+
+  return normalizeSingleSqlStatement(statement);
+}
+
+export function normalizeSingleSqlStatement(sql: string): string {
+  return sql
+    .trim()
     .replace(/^```sql\s*/iu, "")
     .replace(/^```\s*/u, "")
     .replace(/```$/u, "")
+    .trim()
+    .replace(/;\s*$/u, "")
     .trim();
 }
 
@@ -78,25 +90,26 @@ export function validateSqlDraft(
   tableName: string,
   schemaAssessment: SchemaAssessment,
 ): SqlSafetyResult {
+  const normalizedSql = normalizeSingleSqlStatement(sql);
   const reasons = [];
 
   try {
-    assertReadOnlySql(sql);
+    assertReadOnlySql(normalizedSql);
   } catch (error) {
     reasons.push(error instanceof Error ? error.message : "SQL failed read-only validation.");
   }
 
-  if (!referencesApprovedTable(sql, tableName)) {
+  if (!referencesApprovedTable(normalizedSql, tableName)) {
     reasons.push(`SQL must reference only the approved table: ${tableName}.`);
   }
 
-  if (!/\busage_start_ts\b/iu.test(sql)) {
+  if (!/\busage_start_ts\b/iu.test(normalizedSql)) {
     reasons.push("SQL must include a usage_start_ts date predicate.");
   }
 
   if (
     schemaAssessment.supportedDimensions.length > 0 &&
-    !schemaAssessment.columns.some((column) => sql.includes(column.columnName))
+    !schemaAssessment.columns.some((column) => normalizedSql.includes(column.columnName))
   ) {
     reasons.push("SQL does not reference any known billing table columns.");
   }

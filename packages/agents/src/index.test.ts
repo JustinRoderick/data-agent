@@ -9,11 +9,13 @@ import {
   createCloudCostAgentDefinitions,
   createInitialRunPlan,
   runCloudCostCopilot,
+  type SchemaAssessment,
   sandboxValidationResultSchema,
   schemaAssessmentSchema,
   sqlDraftSchema,
   sqlSafetyResultSchema,
 } from "./index";
+import { extractSql, validateSqlDraft } from "./sql";
 
 describe("agents scaffold", () => {
   it("normalizes valid copilot questions", () => {
@@ -85,6 +87,93 @@ describe("agents scaffold", () => {
       expect.arrayContaining([
         expect.objectContaining({ step: "schema_lookup", status: "completed" }),
         expect.objectContaining({ step: "sandbox_validation", status: "completed" }),
+      ]),
+    );
+  });
+
+  it("normalizes model SQL output while preserving multi-statement safety", () => {
+    const schemaAssessment: SchemaAssessment = {
+      tableName: "main.bi_demo.gcp_billing_usage",
+      columns: [
+        { columnName: "service_name", dataType: "STRING" },
+        { columnName: "rounded_cost_usd", dataType: "DOUBLE" },
+        { columnName: "usage_start_ts", dataType: "TIMESTAMP" },
+      ],
+      dateColumn: "usage_start_ts",
+      costColumn: "rounded_cost_usd",
+      supportedDimensions: ["service_name"],
+      unsupportedFields: [],
+      warnings: [],
+    };
+    const tableName = "main.bi_demo.gcp_billing_usage";
+    const normalized = extractSql(`
+      Here is the query:
+
+      \`\`\`sql
+      SELECT service_name, SUM(rounded_cost_usd) AS cloud_spend_usd
+      FROM main.bi_demo.gcp_billing_usage
+      WHERE usage_start_ts >= TIMESTAMP '2024-08-01'
+      GROUP BY service_name;
+      \`\`\`
+    `);
+
+    expect(normalized.endsWith(";")).toBe(false);
+    expect(validateSqlDraft(normalized, tableName, schemaAssessment).passed).toBe(true);
+    expect(validateSqlDraft(`${normalized}; SELECT 1`, tableName, schemaAssessment).passed).toBe(
+      false,
+    );
+  });
+
+  it("falls back to deterministic SQL when model SQL fails safety", async () => {
+    const events: unknown[] = [];
+    const result = await runCloudCostCopilot(
+      {
+        question: "What were the top GCP services by cloud spend in August 2024?",
+        runMode: "mock",
+      },
+      {
+        databricks: new MockDatabricksConnector(
+          [],
+          [
+            {
+              service_name: "Cloud Dataproc",
+              cloud_spend_usd: 5004,
+            },
+          ],
+        ),
+        rag: new InMemoryRagConnector([]),
+        useModel: true,
+        onEvent: (event) => {
+          events.push(event);
+        },
+        modelRunner: async (agent) => {
+          if (agent.name === "Databricks SQL Analyst Agent") {
+            return {
+              sql: "SELECT * FROM main.bi_demo.gcp_billing_usage; SELECT 1",
+            };
+          }
+
+          if (agent.name === "Cloud Cost Narrative Agent") {
+            return {
+              answer: "The query returned rows for cloud spend.",
+              caveats: [],
+              followUpQuestions: [],
+            };
+          }
+
+          return undefined;
+        },
+      },
+    );
+
+    expect(result.sql).toContain("SUM(rounded_cost_usd)");
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          step: "sql_safety",
+          message: expect.stringContaining("falling back to deterministic SQL"),
+        }),
+        expect.objectContaining({ step: "narrative", status: "completed" }),
       ]),
     );
   });

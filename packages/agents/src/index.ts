@@ -27,7 +27,12 @@ import {
   sqlDraftSchema,
   sqlSafetyResultSchema,
 } from "./schemas";
-import { buildDeterministicSqlDraft, extractSql, validateSqlDraft } from "./sql";
+import {
+  buildDeterministicSqlDraft,
+  extractSql,
+  normalizeSingleSqlStatement,
+  validateSqlDraft,
+} from "./sql";
 
 export * from "./schemas";
 
@@ -136,7 +141,7 @@ export async function runCloudCostCopilot(
       ? "Generating SQL with OpenAI Agents SDK."
       : "Generating SQL with deterministic planner.",
   });
-  const sqlDraft = dependencies.useModel
+  let sqlDraft = dependencies.useModel
     ? await buildModelBackedCloudCostSql(
         input.question,
         tableName,
@@ -160,16 +165,37 @@ export async function runCloudCostCopilot(
     status: "running",
     message: "Checking generated SQL safety.",
   });
-  const sqlSafety = validateSqlDraft(sqlDraft.sql, tableName, schemaAssessment);
+  let sqlSafety = validateSqlDraft(sqlDraft.sql, tableName, schemaAssessment);
   if (!sqlSafety.passed) {
-    await emit(dependencies, {
-      type: "error",
-      step: "sql_safety",
-      status: "failed",
-      message: sqlSafety.reasons.join(" "),
-      data: sqlSafety,
-    });
-    throw new Error(`Generated SQL failed safety checks: ${sqlSafety.reasons.join(" ")}`);
+    if (dependencies.useModel) {
+      await emit(dependencies, {
+        type: "step",
+        step: "sql_safety",
+        status: "running",
+        message: `Model SQL failed safety checks; falling back to deterministic SQL. ${sqlSafety.reasons.join(" ")}`,
+        data: sqlSafety,
+      });
+      sqlDraft = buildDeterministicSqlDraft(input.question, tableName);
+      await emit(dependencies, {
+        type: "sql",
+        step: "sql_analyst",
+        status: "completed",
+        message: "Recovered with deterministic Databricks SQL.",
+        data: sqlDraft,
+      });
+      sqlSafety = validateSqlDraft(sqlDraft.sql, tableName, schemaAssessment);
+    }
+
+    if (!sqlSafety.passed) {
+      await emit(dependencies, {
+        type: "error",
+        step: "sql_safety",
+        status: "failed",
+        message: sqlSafety.reasons.join(" "),
+        data: sqlSafety,
+      });
+      throw new Error(`Generated SQL failed safety checks: ${sqlSafety.reasons.join(" ")}`);
+    }
   }
   await emit(dependencies, {
     type: "step",
@@ -460,22 +486,16 @@ async function buildModelBackedAnalysisPlan(
   dependencies: CloudCostCopilotDependencies,
 ): Promise<AnalysisPlan> {
   const agent = createCoordinatorAgent([]);
-  const result = await run(
-    agent,
-    [
-      "Create a concise structured analysis plan for this cloud billing question.",
-      "Supported dimensions include service_name, region_zone, CPU utilization, and memory utilization.",
-      "Default to August 2024 when the user does not specify a time window.",
-      `Run mode: ${input.runMode}`,
-      `Question: ${input.question}`,
-    ].join("\n\n"),
-    {
-      maxTurns: 2,
-      ...(dependencies.model ? { model: dependencies.model } : {}),
-    },
-  );
+  const prompt = [
+    "Create a concise structured analysis plan for this cloud billing question.",
+    "Supported dimensions include service_name, region_zone, CPU utilization, and memory utilization.",
+    "Default to August 2024 when the user does not specify a time window.",
+    `Run mode: ${input.runMode}`,
+    `Question: ${input.question}`,
+  ].join("\n\n");
+  const result = await runModel(agent, prompt, dependencies, { maxTurns: 2 });
 
-  return analysisPlanSchema.parse(result.finalOutput ?? buildDeterministicAnalysisPlan(input));
+  return analysisPlanSchema.parse(result ?? buildDeterministicAnalysisPlan(input));
 }
 
 async function buildModelBackedCloudCostSql(
@@ -489,30 +509,25 @@ async function buildModelBackedCloudCostSql(
   const context = citations
     .map((citation) => `# ${citation.title}\n${citation.excerpt}`)
     .join("\n\n");
-  const result = await run(
-    sqlGeneratorAgent,
-    [
-      "Create one Databricks SQL SELECT query for the user question.",
-      "Return a structured SQL draft object.",
-      `Table: ${tableName}`,
-      "Default date window: August 2024 unless the user asks for another period.",
-      "Use rounded_cost_usd for cloud spend.",
-      `Available columns: ${schemaAssessment.columns.map((column) => column.columnName).join(", ")}`,
-      `Retrieved context:\n${context}`,
-      `Question: ${question}`,
-    ].join("\n\n"),
-    {
-      maxTurns: 3,
-      ...(dependencies.model ? { model: dependencies.model } : {}),
-    },
-  );
+  const prompt = [
+    "Create one Databricks SQL SELECT query for the user question.",
+    "Return a structured SQL draft object with exactly one SQL query.",
+    "The SQL must start with SELECT or WITH, must not include markdown, must not include commentary, and must not end with a semicolon.",
+    `Table: ${tableName}`,
+    "Default date window: August 2024 unless the user asks for another period.",
+    "Use rounded_cost_usd for cloud spend.",
+    `Available columns: ${schemaAssessment.columns.map((column) => column.columnName).join(", ")}`,
+    `Retrieved context:\n${context}`,
+    `Question: ${question}`,
+  ].join("\n\n");
+  const result = await runModel(sqlGeneratorAgent, prompt, dependencies, { maxTurns: 3 });
   const output =
-    typeof result.finalOutput === "string"
-      ? result.finalOutput
-      : sqlDraftSchema.safeParse(result.finalOutput).success
-        ? sqlDraftSchema.parse(result.finalOutput).sql
+    typeof result === "string"
+      ? result
+      : sqlDraftSchema.safeParse(result).success
+        ? sqlDraftSchema.parse(result).sql
         : "";
-  const sql = extractSql(output);
+  const sql = normalizeSingleSqlStatement(extractSql(output));
 
   return sqlDraftSchema.parse({
     ...buildDeterministicSqlDraft(question, tableName),
@@ -530,26 +545,20 @@ async function buildModelBackedNarrative(
   dependencies: CloudCostCopilotDependencies,
 ): Promise<NarrativeAnswer> {
   const agent = createNarrativeAgent();
-  const result = await run(
-    agent,
-    [
-      "Write a concise BI/FinOps answer from these Databricks results.",
-      "Mention the cloud_spend_usd definition when relevant and cite caveats from retrieved docs.",
-      `Question: ${question}`,
-      `SQL: ${sql}`,
-      `Rows: ${JSON.stringify(queryResult.rows.slice(0, 10))}`,
-      `Citations: ${JSON.stringify(citations)}`,
-      `SQL safety: ${JSON.stringify(sqlSafety)}`,
-      `Sandbox: ${JSON.stringify(sandboxValidation)}`,
-    ].join("\n\n"),
-    {
-      maxTurns: 2,
-      ...(dependencies.model ? { model: dependencies.model } : {}),
-    },
-  );
+  const prompt = [
+    "Write a concise BI/FinOps answer from these Databricks results.",
+    "Mention the cloud_spend_usd definition when relevant and cite caveats from retrieved docs.",
+    `Question: ${question}`,
+    `SQL: ${sql}`,
+    `Rows: ${JSON.stringify(queryResult.rows.slice(0, 10))}`,
+    `Citations: ${JSON.stringify(citations)}`,
+    `SQL safety: ${JSON.stringify(sqlSafety)}`,
+    `Sandbox: ${JSON.stringify(sandboxValidation)}`,
+  ].join("\n\n");
+  const result = await runModel(agent, prompt, dependencies, { maxTurns: 2 });
 
   return narrativeAnswerSchema.parse(
-    result.finalOutput ??
+    result ??
       buildDeterministicNarrative(question, queryResult, citations, {
         tableName: "gcp_billing_usage",
         columns: [],
@@ -560,6 +569,24 @@ async function buildModelBackedNarrative(
         warnings: [],
       }),
   );
+}
+
+async function runModel(
+  agent: Agent<any, any>,
+  prompt: string,
+  dependencies: CloudCostCopilotDependencies,
+  options: { maxTurns: number },
+): Promise<unknown> {
+  if (dependencies.modelRunner) {
+    return dependencies.modelRunner(agent, prompt);
+  }
+
+  const result = await run(agent, prompt, {
+    maxTurns: options.maxTurns,
+    ...(dependencies.model ? { model: dependencies.model } : {}),
+  });
+
+  return result.finalOutput;
 }
 
 function buildDeterministicNarrative(
