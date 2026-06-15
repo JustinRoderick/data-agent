@@ -1,3 +1,4 @@
+import { Separator } from "@openai-demo/ui/components/separator";
 import { Link } from "@tanstack/react-router";
 
 import UserMenu from "./user-menu";
@@ -9,12 +10,19 @@ export default function Header() {
   ] as const;
 
   return (
-    <div>
-      <div className="flex flex-row items-center justify-between px-2 py-1">
-        <nav className="flex gap-4 text-lg">
+    <header>
+      <div className="flex h-12 flex-row items-center justify-between px-4">
+        <nav className="flex gap-4 text-sm">
           {links.map(({ to, label }) => {
             return (
-              <Link key={to} to={to}>
+              <Link
+                key={to}
+                to={to}
+                className="text-muted-foreground transition-colors hover:text-foreground"
+                activeProps={{
+                  className: "text-foreground",
+                }}
+              >
                 {label}
               </Link>
             );
@@ -24,7 +32,7 @@ export default function Header() {
           <UserMenu />
         </div>
       </div>
-      <hr />
-    </div>
+      <Separator />
+    </header>
   );
 }

@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import {
   MockDatabricksConnector,
@@ -34,7 +35,11 @@ interface GcpBillingRow {
   total_cost_inr: number;
 }
 
-const billingCsvPath = "data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv";
+const billingCsvPath = new URL(
+  "../../../../data/kaggle/gcp-cloud-billing-data/processed/gcp_billing_usage.csv",
+  import.meta.url,
+);
+const knowledgeDirectoryPath = fileURLToPath(new URL("../../../../knowledge", import.meta.url));
 
 export async function createCopilotDependencies() {
   const [databricks, sandboxDatabricks, rag] = await Promise.all([
@@ -83,7 +88,9 @@ async function createRag(): Promise<RagConnector> {
     return openAiRag;
   }
 
-  return new InMemoryRagConnector(await loadKnowledgeDocumentsFromDirectory("knowledge"));
+  return new InMemoryRagConnector(
+    await loadKnowledgeDocumentsFromDirectory(knowledgeDirectoryPath),
+  );
 }
 
 class LocalBillingDatabricksConnector extends MockDatabricksConnector {
