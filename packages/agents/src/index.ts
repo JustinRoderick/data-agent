@@ -1,169 +1,35 @@
 import { Agent, run, tool } from "@openai/agents";
-import type { DatabricksConnector, DatabricksQueryResult } from "@openai-demo/databricks";
-import { assertReadOnlySql } from "@openai-demo/databricks";
-import type { RagConnector, RetrievedContext } from "@openai-demo/rag";
+import type { DatabricksQueryResult } from "@openai-demo/databricks";
+import type { RetrievedContext } from "@openai-demo/rag";
 import { z } from "zod";
 
-export const copilotQuestionSchema = z.object({
-  question: z.string().trim().min(1),
-  runMode: z.enum(["mock", "live"]).default("mock"),
-});
+import { assessDatabricksSchema, retrieveMetricContext } from "./context";
+import { validateInSandbox } from "./sandbox";
+import {
+  type AgentStepName,
+  type AnalysisPlan,
+  type CloudCostCopilotDependencies,
+  type CloudCostCopilotResult,
+  type CopilotQuestion,
+  type CopilotRunEvent,
+  type CopilotRunPlan,
+  type NarrativeAnswer,
+  type SandboxValidationResult,
+  type SchemaAssessment,
+  type SqlDraft,
+  type SqlSafetyResult,
+  analysisPlanSchema,
+  cloudCostCopilotResultSchema,
+  narrativeAnswerSchema,
+  retrievedContextSchema,
+  sandboxValidationResultSchema,
+  schemaAssessmentSchema,
+  sqlDraftSchema,
+  sqlSafetyResultSchema,
+} from "./schemas";
+import { buildDeterministicSqlDraft, extractSql, validateSqlDraft } from "./sql";
 
-export type CopilotQuestion = z.infer<typeof copilotQuestionSchema>;
-
-export type AgentStepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
-
-export type AgentStepName =
-  | "coordinator"
-  | "metric_catalog"
-  | "schema_lookup"
-  | "sql_analyst"
-  | "sql_safety"
-  | "sandbox_validation"
-  | "databricks_execution"
-  | "narrative";
-
-export interface AgentStep {
-  name: AgentStepName;
-  status: AgentStepStatus;
-  summary: string;
-}
-
-export interface CopilotRunEvent {
-  type: "step" | "sql" | "result" | "error";
-  step?: AgentStepName;
-  status?: AgentStepStatus;
-  message: string;
-  data?: unknown;
-}
-
-export interface CopilotRunPlan {
-  question: string;
-  runMode: CopilotQuestion["runMode"];
-  steps: AgentStep[];
-}
-
-export const cloudCostCopilotResultSchema = z.object({
-  question: z.string(),
-  answer: z.string(),
-  sql: z.string(),
-  citations: z.array(
-    z.object({
-      title: z.string(),
-      sourcePath: z.string().optional(),
-      excerpt: z.string(),
-    }),
-  ),
-  rows: z.array(z.record(z.string(), z.unknown())),
-  steps: z.array(
-    z.object({
-      name: z.string(),
-      status: z.string(),
-      summary: z.string(),
-    }),
-  ),
-});
-
-export type CloudCostCopilotResult = z.infer<typeof cloudCostCopilotResultSchema>;
-
-export interface CloudCostCopilotDependencies {
-  databricks: DatabricksConnector;
-  sandboxDatabricks?: DatabricksConnector;
-  rag: RagConnector;
-  tableName?: string;
-  useModel?: boolean;
-  model?: string;
-  onEvent?: (event: CopilotRunEvent) => void | Promise<void>;
-}
-
-export const analysisPlanSchema = z.object({
-  questionType: z.enum([
-    "spend_breakdown",
-    "trend_comparison",
-    "utilization_analysis",
-    "anomaly_root_cause",
-    "metadata_lookup",
-    "unsupported",
-  ]),
-  normalizedQuestion: z.string().min(1),
-  metricId: z.string().default("cloud_spend_usd"),
-  timeWindow: z.string().default("August 2024"),
-  requestedDimensions: z.array(z.string()).default([]),
-  needsClarification: z.boolean().default(false),
-  rationale: z.string().default(""),
-});
-
-export type AnalysisPlan = z.infer<typeof analysisPlanSchema>;
-
-export const retrievedContextSchema = z.object({
-  citations: z.array(
-    z.object({
-      documentId: z.string(),
-      title: z.string(),
-      excerpt: z.string(),
-      score: z.number(),
-      sourcePath: z.string().optional(),
-    }),
-  ),
-  metricIds: z.array(z.string()).default(["cloud_spend_usd"]),
-  caveats: z.array(z.string()).default([]),
-});
-
-export type RetrievedContextResult = z.infer<typeof retrievedContextSchema>;
-
-export const schemaAssessmentSchema = z.object({
-  tableName: z.string().min(1),
-  columns: z.array(
-    z.object({
-      columnName: z.string(),
-      dataType: z.string(),
-      comment: z.string().optional(),
-    }),
-  ),
-  dateColumn: z.string().default("usage_start_ts"),
-  costColumn: z.string().default("rounded_cost_usd"),
-  supportedDimensions: z.array(z.string()).default([]),
-  unsupportedFields: z.array(z.string()).default([]),
-  warnings: z.array(z.string()).default([]),
-});
-
-export type SchemaAssessment = z.infer<typeof schemaAssessmentSchema>;
-
-export const sqlDraftSchema = z.object({
-  sql: z.string().min(1),
-  metricId: z.string().default("cloud_spend_usd"),
-  dimensions: z.array(z.string()).default([]),
-  timeWindow: z.string().default("August 2024"),
-  assumptions: z.array(z.string()).default([]),
-});
-
-export type SqlDraft = z.infer<typeof sqlDraftSchema>;
-
-export const sqlSafetyResultSchema = z.object({
-  passed: z.boolean(),
-  reasons: z.array(z.string()).default([]),
-  approvedTables: z.array(z.string()).default([]),
-  correctedSql: z.string().optional(),
-});
-
-export type SqlSafetyResult = z.infer<typeof sqlSafetyResultSchema>;
-
-export const sandboxValidationResultSchema = z.object({
-  passed: z.boolean(),
-  rowCount: z.number().int().nonnegative(),
-  previewRows: z.array(z.record(z.string(), z.unknown())),
-  warnings: z.array(z.string()).default([]),
-});
-
-export type SandboxValidationResult = z.infer<typeof sandboxValidationResultSchema>;
-
-export const narrativeAnswerSchema = z.object({
-  answer: z.string().min(1),
-  caveats: z.array(z.string()).default([]),
-  followUpQuestions: z.array(z.string()).default([]),
-});
-
-export type NarrativeAnswer = z.infer<typeof narrativeAnswerSchema>;
+export * from "./schemas";
 
 export function createInitialRunPlan(input: CopilotQuestion): CopilotRunPlan {
   const steps: AgentStepName[] = [
@@ -249,7 +115,11 @@ export async function runCloudCostCopilot(
     status: "running",
     message: "Inspecting Databricks table schema.",
   });
-  const schemaAssessment = await assessDatabricksSchema(tableName, input.question, dependencies);
+  const schemaAssessment = await assessDatabricksSchema(
+    tableName,
+    input.question,
+    dependencies.databricks,
+  );
   await emit(dependencies, {
     type: "step",
     step: "schema_lookup",
@@ -585,63 +455,6 @@ function buildDeterministicAnalysisPlan(input: CopilotQuestion): AnalysisPlan {
   });
 }
 
-function buildDeterministicSqlDraft(question: string, tableName: string): SqlDraft {
-  const normalized = question.toLowerCase();
-  const datePredicate =
-    "usage_start_ts >= TIMESTAMP '2024-08-01' AND usage_start_ts < TIMESTAMP '2024-09-01'";
-
-  if (normalized.includes("region")) {
-    return sqlDraftSchema.parse({
-      sql: `
-      SELECT
-        region_zone,
-        SUM(rounded_cost_usd) AS cloud_spend_usd
-      FROM ${tableName}
-      WHERE ${datePredicate}
-      GROUP BY region_zone
-      ORDER BY cloud_spend_usd DESC
-      LIMIT 10
-    `,
-      dimensions: ["region_zone"],
-      assumptions: ["Defaulted to August 2024 because no other date window was requested."],
-    });
-  }
-
-  if (normalized.includes("cpu") || normalized.includes("utilization")) {
-    return sqlDraftSchema.parse({
-      sql: `
-      SELECT
-        service_name,
-        SUM(rounded_cost_usd) AS cloud_spend_usd,
-        AVG(cpu_utilization_pct) AS avg_cpu_utilization_pct,
-        AVG(memory_utilization_pct) AS avg_memory_utilization_pct
-      FROM ${tableName}
-      WHERE ${datePredicate}
-      GROUP BY service_name
-      ORDER BY cloud_spend_usd DESC
-      LIMIT 10
-    `,
-      dimensions: ["service_name"],
-      assumptions: ["Defaulted to August 2024 because no other date window was requested."],
-    });
-  }
-
-  return sqlDraftSchema.parse({
-    sql: `
-    SELECT
-      service_name,
-      SUM(rounded_cost_usd) AS cloud_spend_usd
-    FROM ${tableName}
-    WHERE ${datePredicate}
-    GROUP BY service_name
-    ORDER BY cloud_spend_usd DESC
-    LIMIT 10
-  `,
-    dimensions: ["service_name"],
-    assumptions: ["Defaulted to August 2024 because no other date window was requested."],
-  });
-}
-
 async function buildModelBackedAnalysisPlan(
   input: CopilotQuestion,
   dependencies: CloudCostCopilotDependencies,
@@ -663,76 +476,6 @@ async function buildModelBackedAnalysisPlan(
   );
 
   return analysisPlanSchema.parse(result.finalOutput ?? buildDeterministicAnalysisPlan(input));
-}
-
-async function retrieveMetricContext(
-  question: string,
-  rag: RagConnector,
-): Promise<RetrievedContextResult> {
-  const citations = await rag.search(question, { limit: 4 });
-
-  return retrievedContextSchema.parse({
-    citations,
-    caveats: inferKnowledgeCaveats(citations),
-  });
-}
-
-function inferKnowledgeCaveats(citations: RetrievedContext[]): string[] {
-  const caveats = new Set<string>();
-  const content = citations.map((citation) => citation.excerpt.toLowerCase()).join("\n");
-
-  for (const field of ["project id", "sku", "labels", "credits", "discounts", "amortized cost"]) {
-    if (content.includes(field)) {
-      caveats.add(`Retrieved docs mention ${field}; verify whether this demo dataset includes it.`);
-    }
-  }
-
-  return [...caveats];
-}
-
-async function assessDatabricksSchema(
-  tableName: string,
-  question: string,
-  dependencies: Pick<CloudCostCopilotDependencies, "databricks">,
-): Promise<SchemaAssessment> {
-  const columns = await listColumnsWithFallback(tableName, dependencies.databricks);
-  const columnNames = new Set(columns.map((column) => column.columnName));
-  const unsupportedFields = [];
-  const warnings = [];
-
-  for (const field of ["project_id", "sku_id", "labels", "credits", "discounts"]) {
-    if (question.toLowerCase().includes(field.replace("_", " ")) && !columnNames.has(field)) {
-      unsupportedFields.push(field);
-    }
-  }
-
-  if (!columnNames.has("rounded_cost_usd")) {
-    warnings.push("Expected rounded_cost_usd is missing; spend SQL may need a different metric.");
-  }
-
-  return schemaAssessmentSchema.parse({
-    tableName,
-    columns: columns.map((column) => ({
-      columnName: column.columnName,
-      dataType: column.dataType,
-      comment: column.comment,
-    })),
-    supportedDimensions: ["service_name", "region_zone"].filter((column) =>
-      columnNames.has(column),
-    ),
-    unsupportedFields,
-    warnings,
-  });
-}
-
-async function listColumnsWithFallback(tableName: string, databricks: DatabricksConnector) {
-  const columns = await databricks.listColumns(tableName);
-
-  if (columns.length > 0 || !tableName.includes(".")) {
-    return columns;
-  }
-
-  return databricks.listColumns(unqualifiedTableName(tableName));
 }
 
 async function buildModelBackedCloudCostSql(
@@ -774,97 +517,6 @@ async function buildModelBackedCloudCostSql(
   return sqlDraftSchema.parse({
     ...buildDeterministicSqlDraft(question, tableName),
     sql: sql || buildDeterministicSqlDraft(question, tableName).sql,
-  });
-}
-
-function extractSql(output: string): string {
-  return output
-    .replace(/^```sql\s*/iu, "")
-    .replace(/^```\s*/u, "")
-    .replace(/```$/u, "")
-    .trim();
-}
-
-function validateSqlDraft(
-  sql: string,
-  tableName: string,
-  schemaAssessment: SchemaAssessment,
-): SqlSafetyResult {
-  const reasons = [];
-
-  try {
-    assertReadOnlySql(sql);
-  } catch (error) {
-    reasons.push(error instanceof Error ? error.message : "SQL failed read-only validation.");
-  }
-
-  if (!referencesApprovedTable(sql, tableName)) {
-    reasons.push(`SQL must reference only the approved table: ${tableName}.`);
-  }
-
-  if (!/\busage_start_ts\b/iu.test(sql)) {
-    reasons.push("SQL must include a usage_start_ts date predicate.");
-  }
-
-  if (
-    schemaAssessment.supportedDimensions.length > 0 &&
-    !schemaAssessment.columns.some((column) => sql.includes(column.columnName))
-  ) {
-    reasons.push("SQL does not reference any known billing table columns.");
-  }
-
-  return sqlSafetyResultSchema.parse({
-    passed: reasons.length === 0,
-    reasons,
-    approvedTables: [tableName],
-  });
-}
-
-function referencesApprovedTable(sql: string, tableName: string): boolean {
-  const approved = new Set([normalizeTableReference(tableName), unqualifiedTableName(tableName)]);
-  const referencedTables = [...sql.matchAll(/\b(?:from|join)\s+([`"A-Za-z0-9_.]+)/giu)].map(
-    (match) => normalizeTableReference(match[1] ?? ""),
-  );
-
-  return referencedTables.length > 0 && referencedTables.every((table) => approved.has(table));
-}
-
-function normalizeTableReference(tableName: string): string {
-  return tableName.replaceAll(/[`"]/gu, "").trim().toLowerCase();
-}
-
-function unqualifiedTableName(tableName: string): string {
-  return normalizeTableReference(tableName).split(".").at(-1) ?? tableName;
-}
-
-async function validateInSandbox(
-  sql: string,
-  input: CopilotQuestion,
-  dependencies: CloudCostCopilotDependencies,
-): Promise<SandboxValidationResult> {
-  const sandbox =
-    dependencies.sandboxDatabricks ??
-    (input.runMode === "mock" ? dependencies.databricks : undefined);
-
-  if (!sandbox) {
-    return sandboxValidationResultSchema.parse({
-      passed: true,
-      rowCount: 0,
-      previewRows: [],
-      warnings: [
-        "No sandbox connector configured; deterministic SQL safety was used as the sandbox gate.",
-      ],
-    });
-  }
-
-  const result = await sandbox.runReadOnlyQuery(sql);
-  const warnings = result.rowCount === 0 ? ["Sandbox query returned no rows."] : [];
-
-  return sandboxValidationResultSchema.parse({
-    passed: warnings.length === 0,
-    rowCount: result.rowCount,
-    previewRows: result.rows.slice(0, 5),
-    warnings,
   });
 }
 
