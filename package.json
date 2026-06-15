@@ -39,7 +39,9 @@
     "test": "vitest",
     "data:prepare:gcp-billing": "bun run scripts/prepare-gcp-billing-data.ts",
     "databricks:check": "bun run scripts/check-databricks-connection.ts",
-    "rag:ingest": "bun run scripts/ingest-knowledge-vector-store.ts"
+    "rag:ingest": "bun run scripts/ingest-knowledge-vector-store.ts",
+    "evals:local": "turbo -F @openai-demo/evals eval:local",
+    "evals:braintrust": "turbo -F @openai-demo/evals eval:braintrust"
   },
   "dependencies": {
     "@openai-demo/databricks": "workspace:*",

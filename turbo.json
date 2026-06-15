@@ -33,6 +33,12 @@
     },
     "db:local": {
       "cache": false
+    },
+    "eval:local": {
+      "cache": false
+    },
+    "eval:braintrust": {
+      "cache": false
     }
   }
 }

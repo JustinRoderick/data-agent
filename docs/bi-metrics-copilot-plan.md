@@ -658,26 +658,29 @@ Braintrust setup for this demo:
 
 Create curated eval scenarios covering:
 
-- Correct cloud cost metric selection.
-- Correct table selection.
-- Correct date grain and filters.
-- Safe Databricks SQL generation.
-- Sandbox-before-Databricks behavior.
-- Citation grounding.
+- [x] Correct cloud cost metric selection.
+- [x] Correct table selection.
+- [x] Correct date grain and filters.
+- [x] Safe Databricks SQL generation.
+- [x] Sandbox-before-Databricks behavior.
+- [x] Citation grounding.
 - Ambiguous question clarification.
-- Unsafe request refusal.
+- [x] Unsafe request refusal.
 - Unsupported metric handling.
 
 Implement scorers:
 
-- Code scorer for expected metric ID.
-- Code scorer for required table names.
-- Code scorer for SELECT-only SQL.
-- Code scorer for sandbox step presence.
-- LLM-as-judge scorer for final answer quality.
-- LLM-as-judge scorer for citation usefulness and caveat quality.
+- [x] Code scorer for expected metric ID.
+- [x] Code scorer for required table names.
+- [x] Code scorer for required SQL fragments and date filters.
+- [x] Code scorer for SELECT-only SQL.
+- [x] Code scorer for sandbox step presence.
+- [x] Code scorer for citation presence.
+- [x] Code scorer for basic answer quality.
+- [ ] LLM-as-judge scorer for final answer quality.
+- [ ] LLM-as-judge scorer for citation usefulness and caveat quality.
 
-Run evals locally and in CI.
+Run evals locally with `bun run evals:local`. Upload an experiment to Braintrust with `bun run evals:braintrust` after `BRAINTRUST_API_KEY` is set.
 
 ### 13. Add Tests
 
