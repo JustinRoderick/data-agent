@@ -26,6 +26,8 @@ export const evalScenarioSchema = z.object({
     shouldExecuteLiveDatabricks: z.boolean().default(false),
     shouldHaveCitations: z.boolean().default(true),
     minimumRows: z.number().int().nonnegative().default(1),
+    expectedAnswerTerms: z.array(z.string().min(1)).default([]),
+    minimumAnswerTermMatches: z.number().int().nonnegative().default(0),
   }),
 });
 

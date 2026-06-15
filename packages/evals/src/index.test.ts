@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cloudCostEvalCases,
+  cloudCostModelAnswerEvalCases,
   evalScenarioSchema,
   runCloudCostEvalTask,
   scoreScenario,
@@ -24,6 +25,8 @@ describe("cloud cost evals", () => {
       shouldUseSandbox: true,
       shouldExecuteLiveDatabricks: false,
       shouldHaveCitations: true,
+      expectedAnswerTerms: [],
+      minimumAnswerTermMatches: 0,
     });
   });
 
@@ -32,6 +35,17 @@ describe("cloud cost evals", () => {
     expect(cloudCostEvalCases.map((testCase) => testCase.metadata.category)).toEqual(
       expect.arrayContaining(["spend", "safety", "grounding"]),
     );
+  });
+
+  it("defines model-backed answer accuracy cases", () => {
+    expect(cloudCostModelAnswerEvalCases.length).toBeGreaterThanOrEqual(2);
+    expect(
+      cloudCostModelAnswerEvalCases.every(
+        (testCase) =>
+          testCase.expected.expectedAnswerTerms.length > 0 &&
+          testCase.expected.minimumAnswerTermMatches > 0,
+      ),
+    ).toBe(true);
   });
 
   it("scores deterministic workflow expectations", () => {
@@ -45,10 +59,12 @@ describe("cloud cost evals", () => {
         shouldExecuteLiveDatabricks: false,
         shouldHaveCitations: true,
         minimumRows: 1,
+        expectedAnswerTerms: ["BigQuery", "cloud spend"],
+        minimumAnswerTermMatches: 2,
       },
       {
         question: "Top services?",
-        answer: "The query returned rows for cloud spend.",
+        answer: "The query returned rows for cloud spend. BigQuery was the top service.",
         sql: `
           SELECT service_name, SUM(rounded_cost_usd) AS cloud_spend_usd
           FROM main.bi_demo.gcp_billing_usage
@@ -71,6 +87,37 @@ describe("cloud cost evals", () => {
     );
 
     expect(scores.every((score) => score.score === 1)).toBe(true);
+  });
+
+  it("scores expected answer facts with partial credit", () => {
+    const scores = scoreScenario(
+      {
+        metricId: "cloud_spend_usd",
+        requiredTables: ["gcp_billing_usage"],
+        requiredSqlFragments: ["SUM(rounded_cost_usd)"],
+        forbiddenSqlFragments: ["DROP "],
+        shouldUseSandbox: true,
+        shouldExecuteLiveDatabricks: false,
+        shouldHaveCitations: true,
+        minimumRows: 1,
+        expectedAnswerTerms: ["BigQuery", "Compute Engine", "cloud spend"],
+        minimumAnswerTermMatches: 2,
+      },
+      {
+        question: "Top services?",
+        answer: "BigQuery had the highest cloud spend in the returned rows.",
+        sql: "SELECT service_name, SUM(rounded_cost_usd) AS cloud_spend_usd FROM main.bi_demo.gcp_billing_usage WHERE usage_start_ts >= TIMESTAMP '2024-08-01'",
+        citations: [{ title: "Cloud Spend USD", excerpt: "Use SUM(rounded_cost_usd)." }],
+        rows: [{ service_name: "BigQuery", cloud_spend_usd: 100 }],
+        events: [],
+        metricId: "cloud_spend_usd",
+        usedTables: ["main.bi_demo.gcp_billing_usage"],
+        usedSandbox: true,
+        executedLiveDatabricks: false,
+      },
+    );
+
+    expect(scores.find((score) => score.name === "answer_expected_facts")?.score).toBe(1);
   });
 
   it("runs the mock cloud cost eval task through the real copilot workflow", async () => {

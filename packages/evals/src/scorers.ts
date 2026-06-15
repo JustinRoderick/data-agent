@@ -51,6 +51,15 @@ export const answerQuality: CloudCostScorer = ({ output, expected }) => {
   });
 };
 
+export const answerExpectedFacts: CloudCostScorer = ({ output, expected }) =>
+  toBraintrustScore(
+    scoreExpectedAnswerTerms(
+      expected.expectedAnswerTerms,
+      expected.minimumAnswerTermMatches,
+      output.answer,
+    ),
+  );
+
 export function scoreScenario(expected: EvalExpected, output: EvalOutput): EvalScore[] {
   return [
     scoreMetric(expected.metricId, output.metricId),
@@ -65,6 +74,11 @@ export function scoreScenario(expected: EvalExpected, output: EvalOutput): EvalS
       output.executedLiveDatabricks,
     ),
     scoreBoolean("citation_grounding", expected.shouldHaveCitations, output.citations.length > 0),
+    scoreExpectedAnswerTerms(
+      expected.expectedAnswerTerms,
+      expected.minimumAnswerTermMatches,
+      output.answer,
+    ),
   ];
 }
 
@@ -137,6 +151,37 @@ function scoreBoolean(name: string, expected: boolean, actual: boolean): EvalSco
   };
 }
 
+function scoreExpectedAnswerTerms(
+  expectedTerms: string[],
+  minimumMatches: number,
+  answer: string,
+): EvalScore {
+  if (expectedTerms.length === 0) {
+    return {
+      name: "answer_expected_facts",
+      score: 1,
+      reason: "No expected answer facts were configured for this scenario.",
+    };
+  }
+
+  const normalizedAnswer = normalizeForFactMatch(answer);
+  const matchedTerms = expectedTerms.filter((term) =>
+    normalizedAnswer.includes(normalizeForFactMatch(term)),
+  );
+  const requiredMatches = Math.min(minimumMatches || expectedTerms.length, expectedTerms.length);
+  const passed = matchedTerms.length >= requiredMatches;
+
+  return {
+    name: "answer_expected_facts",
+    score: passed ? 1 : matchedTerms.length / requiredMatches,
+    reason: passed
+      ? `Matched ${matchedTerms.length}/${expectedTerms.length} expected answer facts: ${matchedTerms.join(", ")}.`
+      : `Matched ${matchedTerms.length}/${requiredMatches} required answer facts. Missing: ${expectedTerms
+          .filter((term) => !matchedTerms.includes(term))
+          .join(", ")}.`,
+  };
+}
+
 function toBraintrustScore(score: EvalScore) {
   return {
     name: score.name,
@@ -157,4 +202,8 @@ function tableWasUsed(requiredTable: string, normalizedUsedTables: string[]): bo
 
 function normalizeTableReference(tableName: string): string {
   return tableName.replaceAll(/[`"]/gu, "").trim().toLowerCase();
+}
+
+function normalizeForFactMatch(value: string): string {
+  return value.toLowerCase().replaceAll(",", "").replaceAll(/\s+/gu, " ").trim();
 }

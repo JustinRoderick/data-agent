@@ -7,13 +7,28 @@ import type { EvalInput, EvalOutput } from "./schemas";
 const tableName = "main.bi_demo.gcp_billing_usage";
 
 export async function runCloudCostEvalTask(input: EvalInput): Promise<EvalOutput> {
+  return runCloudCostEvalTaskWithMode(input, { useModel: false });
+}
+
+export async function runCloudCostModelEvalTask(input: EvalInput): Promise<EvalOutput> {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error("OPENAI_API_KEY is required for model-backed agent answer evals.");
+  }
+
+  return runCloudCostEvalTaskWithMode(input, { useModel: true });
+}
+
+async function runCloudCostEvalTaskWithMode(
+  input: EvalInput,
+  { useModel }: { useModel: boolean },
+): Promise<EvalOutput> {
   const events: CopilotRunEvent[] = [];
   const result = await runCloudCostCopilot(input, {
     databricks: createMockDatabricks(),
     sandboxDatabricks: createMockDatabricks(),
     rag: createMockRag(),
     tableName,
-    useModel: false,
+    useModel,
     onEvent: (event) => {
       events.push(event);
     },
@@ -36,24 +51,75 @@ export async function runCloudCostEvalTask(input: EvalInput): Promise<EvalOutput
 }
 
 function createMockDatabricks(): MockDatabricksConnector {
-  return new MockDatabricksConnector(createBillingColumns(), [
-    {
-      service_name: "BigQuery",
-      cloud_spend_usd: 128_450.25,
-      avg_cpu_utilization_pct: 42.7,
-      avg_memory_utilization_pct: 61.2,
-    },
-    {
-      service_name: "Compute Engine",
-      cloud_spend_usd: 98_110.5,
-      avg_cpu_utilization_pct: 35.2,
-      avg_memory_utilization_pct: 58.4,
-    },
-    {
-      region_zone: "us-central1",
-      cloud_spend_usd: 76_240.75,
-    },
-  ]);
+  return new EvalDatabricksConnector();
+}
+
+class EvalDatabricksConnector extends MockDatabricksConnector {
+  constructor() {
+    super(createBillingColumns(), serviceSpendRows);
+  }
+
+  override async runReadOnlyQuery<
+    TRecord extends Record<string, unknown> = Record<string, unknown>,
+  >(sql: string) {
+    await super.runReadOnlyQuery(sql);
+
+    if (/\bregion_zone\b/iu.test(sql)) {
+      return createQueryResult(regionSpendRows as unknown as TRecord[]);
+    }
+
+    if (/\bcpu_utilization_pct\b/iu.test(sql) || /\bmemory_utilization_pct\b/iu.test(sql)) {
+      return createQueryResult(utilizationSpendRows as unknown as TRecord[]);
+    }
+
+    return createQueryResult(serviceSpendRows as unknown as TRecord[]);
+  }
+}
+
+const serviceSpendRows = [
+  {
+    service_name: "BigQuery",
+    cloud_spend_usd: 128_450.25,
+  },
+  {
+    service_name: "Compute Engine",
+    cloud_spend_usd: 98_110.5,
+  },
+];
+
+const utilizationSpendRows = [
+  {
+    service_name: "BigQuery",
+    cloud_spend_usd: 128_450.25,
+    avg_cpu_utilization_pct: 42.7,
+    avg_memory_utilization_pct: 61.2,
+  },
+  {
+    service_name: "Compute Engine",
+    cloud_spend_usd: 98_110.5,
+    avg_cpu_utilization_pct: 35.2,
+    avg_memory_utilization_pct: 58.4,
+  },
+];
+
+const regionSpendRows = [
+  {
+    region_zone: "us-central1",
+    cloud_spend_usd: 76_240.75,
+  },
+  {
+    region_zone: "us-east1",
+    cloud_spend_usd: 41_205.1,
+  },
+];
+
+function createQueryResult<TRecord extends Record<string, unknown>>(rows: TRecord[]) {
+  return {
+    rows,
+    rowCount: rows.length,
+    queryId: "mock-query",
+    elapsedMs: 0,
+  };
 }
 
 function createBillingColumns(): DatabricksColumn[] {

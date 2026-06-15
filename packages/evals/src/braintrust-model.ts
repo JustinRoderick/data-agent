@@ -2,40 +2,46 @@ import type { Evaluator } from "braintrust";
 
 import type { EvalExpected, EvalInput, EvalMetadata, EvalOutput } from "./schemas";
 import { loadEvalEnv } from "./env";
-import { cloudCostEvalCases } from "./scenarios";
+import { cloudCostModelAnswerEvalCases } from "./scenarios";
 import {
   answerExpectedFacts,
   answerQuality,
   citationGrounding,
   dateFilter,
-  liveDatabricksUsage,
   metricSelection,
   requiredSqlFragments,
   requiredTables,
   sandboxUsed,
   sqlSafety,
 } from "./scorers";
-import { runCloudCostEvalTask } from "./task";
+import { runCloudCostModelEvalTask } from "./task";
 
 loadEvalEnv();
 
-export const braintrustProjectName =
+export const braintrustModelProjectName =
   process.env.BRAINTRUST_PROJECT_NAME ?? "openai-demo-bi-metrics-copilot";
 
-export const cloudCostEvaluator: Evaluator<EvalInput, EvalOutput, EvalExpected, EvalMetadata> = {
-  experimentName: `mock-cloud-cost-agent-${new Date().toISOString()}`,
-  description: "Mock-data regression eval for the Cloud Cost Metrics Copilot agentic workflow.",
-  data: cloudCostEvalCases,
+export const cloudCostModelAnswerEvaluator: Evaluator<
+  EvalInput,
+  EvalOutput,
+  EvalExpected,
+  EvalMetadata
+> = {
+  experimentName: `model-answer-cloud-cost-agent-${new Date().toISOString()}`,
+  description:
+    "Model-backed answer accuracy eval for the Cloud Cost Metrics Copilot using mock Databricks data.",
+  data: cloudCostModelAnswerEvalCases,
   task: async (input, { span, metadata }) => {
     span.log({
       metadata: {
         scenarioId: metadata.scenarioId,
         category: metadata.category,
         dataMode: "mock",
+        modelBackedAgents: true,
       },
     });
 
-    return runCloudCostEvalTask(input);
+    return runCloudCostModelEvalTask(input);
   },
   scores: [
     metricSelection,
@@ -44,13 +50,13 @@ export const cloudCostEvaluator: Evaluator<EvalInput, EvalOutput, EvalExpected, 
     sqlSafety,
     dateFilter,
     sandboxUsed,
-    liveDatabricksUsage,
     citationGrounding,
     answerQuality,
     answerExpectedFacts,
   ],
   metadata: {
     dataMode: "mock",
+    modelBackedAgents: true,
     workflow: "cloud-cost-copilot",
   },
   maxConcurrency: 1,

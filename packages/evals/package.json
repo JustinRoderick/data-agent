@@ -14,7 +14,9 @@
   "scripts": {
     "check-types": "tsc --noEmit",
     "eval:local": "bun run src/run-local.ts",
-    "eval:braintrust": "bt eval src/cloud-cost.eval.ts"
+    "eval:local:model": "bun run src/run-model-local.ts",
+    "eval:braintrust": "bt eval src/cloud-cost.eval.ts",
+    "eval:braintrust:model": "bt eval src/cloud-cost-model.eval.ts"
   },
   "dependencies": {
     "@openai-demo/agents": "workspace:*",

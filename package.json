@@ -41,7 +41,9 @@
     "databricks:check": "bun run scripts/check-databricks-connection.ts",
     "rag:ingest": "bun run scripts/ingest-knowledge-vector-store.ts",
     "evals:local": "turbo -F @openai-demo/evals eval:local",
-    "evals:braintrust": "turbo -F @openai-demo/evals eval:braintrust"
+    "evals:local:model": "turbo -F @openai-demo/evals eval:local:model",
+    "evals:braintrust": "turbo -F @openai-demo/evals eval:braintrust",
+    "evals:braintrust:model": "turbo -F @openai-demo/evals eval:braintrust:model"
   },
   "dependencies": {
     "@openai-demo/databricks": "workspace:*",

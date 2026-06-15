@@ -1,7 +1,12 @@
 export * from "./schemas";
-export { cloudCostEvalCases, cloudCostEvalScenarios } from "./scenarios";
-export { runCloudCostEvalTask } from "./task";
 export {
+  cloudCostEvalCases,
+  cloudCostEvalScenarios,
+  cloudCostModelAnswerEvalCases,
+} from "./scenarios";
+export { runCloudCostEvalTask, runCloudCostModelEvalTask } from "./task";
+export {
+  answerExpectedFacts,
   answerQuality,
   citationGrounding,
   dateFilter,

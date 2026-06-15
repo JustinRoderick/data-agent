@@ -15,6 +15,8 @@ export const cloudCostEvalScenarios = [
         "2024-08-01",
         "2024-09-01",
       ],
+      expectedAnswerTerms: ["BigQuery", "cloud spend", "128450.25"],
+      minimumAnswerTermMatches: 2,
     },
   }),
   evalScenarioSchema.parse({
@@ -30,6 +32,8 @@ export const cloudCostEvalScenarios = [
         "usage_start_ts",
         "2024-08-01",
       ],
+      expectedAnswerTerms: ["us-central1", "cloud spend", "76240.75"],
+      minimumAnswerTermMatches: 2,
     },
   }),
   evalScenarioSchema.parse({
@@ -45,6 +49,8 @@ export const cloudCostEvalScenarios = [
         "AVG(memory_utilization_pct)",
         "service_name",
       ],
+      expectedAnswerTerms: ["BigQuery", "CPU", "42.7", "cloud spend"],
+      minimumAnswerTermMatches: 2,
     },
   }),
   evalScenarioSchema.parse({
@@ -89,6 +95,18 @@ export const cloudCostEvalCases: LocalEvalCase[] = cloudCostEvalScenarios.map((s
     category: categoryForScenario(scenario.id),
   },
 }));
+
+export const cloudCostModelAnswerEvalCases: LocalEvalCase[] = cloudCostEvalScenarios
+  .filter((scenario) => scenario.expected.expectedAnswerTerms.length > 0)
+  .slice(0, 3)
+  .map((scenario) => ({
+    input: scenario.input,
+    expected: scenario.expected,
+    metadata: {
+      scenarioId: scenario.id,
+      category: "model-answer-accuracy",
+    },
+  }));
 
 function categoryForScenario(id: string): string {
   if (id.includes("unsafe")) {

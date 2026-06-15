@@ -664,6 +664,8 @@ Create curated eval scenarios covering:
 - [x] Safe Databricks SQL generation.
 - [x] Sandbox-before-Databricks behavior.
 - [x] Citation grounding.
+- [x] Final answer expected-fact matching.
+- [x] Model-backed answer accuracy scenarios against mock Databricks data.
 - Ambiguous question clarification.
 - [x] Unsafe request refusal.
 - Unsupported metric handling.
@@ -677,10 +679,13 @@ Implement scorers:
 - [x] Code scorer for sandbox step presence.
 - [x] Code scorer for citation presence.
 - [x] Code scorer for basic answer quality.
+- [x] Code scorer for expected answer facts.
 - [ ] LLM-as-judge scorer for final answer quality.
 - [ ] LLM-as-judge scorer for citation usefulness and caveat quality.
 
-Run evals locally with `bun run evals:local`. Upload an experiment to Braintrust with `bun run evals:braintrust` after `BRAINTRUST_API_KEY` is set.
+Run deterministic mock evals locally with `bun run evals:local`. Upload the deterministic experiment to Braintrust with `bun run evals:braintrust` after `BRAINTRUST_API_KEY` is set.
+
+Run model-backed answer accuracy evals locally with `bun run evals:local:model` after `OPENAI_API_KEY` is set. Upload the model-backed answer experiment to Braintrust with `bun run evals:braintrust:model`.
 
 ### 13. Add Tests
 
